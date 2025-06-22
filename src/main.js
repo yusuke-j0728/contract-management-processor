@@ -43,6 +43,14 @@ const CONFIG = {
       /.*contract.*executed/i,
       /.*署名.*完了/,
       /.*契約.*締結/,
+      /^Completed:.*Complete with Docusign:/i,  // Docusign specific pattern
+      /^完了:.*Complete with Docusign:/i,        // Japanese "完了: Complete with Docusign:"
+      /^Completed:.*\.pdf$/i,                    // "Completed: filename.pdf"
+      /^Completed:.*\.docx$/i,                   // "Completed: filename.docx"
+      /^完了:.*\.pdf$/i,                         // Japanese "完了: filename.pdf"
+      /^完了:.*\.docx$/i,                        // Japanese "完了: filename.docx"
+      /^Fwd:.*Completed:.*Complete with Docusign:/i,  // Forwarded Docusign emails
+      /^Fwd:.*完了:.*Complete with Docusign:/i,        // Forwarded Japanese Docusign emails
       
       // Adobe Sign patterns
       /.*agreement.*signed/i,
@@ -84,7 +92,42 @@ const CONFIG = {
   // Legacy single pattern support (for backward compatibility)
   SUBJECT_PATTERN: /completed.*document|signed.*agreement|contract.*executed|署名.*完了|契約.*締結/i,
   
+  // Docusign integration settings for flexible sender detection
+  // Docusign uses various sender patterns, detect via both sender and subject
+  DOCUSIGN_INTEGRATION: {
+    ENABLE: true,  // Enable Docusign email detection
+    
+    // Sender patterns for Docusign emails
+    SENDER_PATTERNS: [
+      /.*@.*\.docusign\.net$/i,        // Any email from docusign.net domains
+      /.*via Docusign.*/i,             // "Name via Docusign" in sender field
+      /.*docusign.*/i                  // Any sender containing "docusign"
+    ],
+    
+    // Subject patterns for additional verification
+    SUBJECT_PATTERNS: [
+      /^Completed:.*Complete with Docusign:/i, // "Completed: Complete with Docusign: filename"
+      /^完了:.*Complete with Docusign:/i,       // Japanese "完了: Complete with Docusign: filename"
+      /^Completed:.*\.pdf$/i,                  // "Completed: filename.pdf"
+      /^Completed:.*\.docx$/i,                 // "Completed: filename.docx"
+      /^Completed:.*\.doc$/i,                  // "Completed: filename.doc"
+      /^完了:.*\.pdf$/i,                       // Japanese "完了: filename.pdf"
+      /^完了:.*\.docx$/i,                      // Japanese "完了: filename.docx"
+      /^完了:.*\.doc$/i,                       // Japanese "完了: filename.doc"
+      /.*via Docusign.*completed/i,            // "Name via Docusign completed"
+      /.*has been completed/i,                 // Generic completion messages
+      /.*document.*signed/i                    // Document signing completion
+    ],
+    
+    // Additional verification requirements
+    REQUIRE_PDF_ATTACHMENT: true,             // Only process emails with PDF attachments
+    
+    // Detection mode: 'sender_or_subject' (either match), 'sender_and_subject' (both required)
+    DETECTION_MODE: 'sender_or_subject'
+  },
+  
   GMAIL_LABEL: 'Contract_Processed',  // 処理済み契約メールのラベル名
+  GMAIL_SKIP_LABEL: 'Contract_Skipped',  // パターン不一致でスキップしたメールのラベル名
   
   // Slack integration settings
   // IMPORTANT: Set actual Slack channel in Script Properties, not here!
@@ -146,10 +189,40 @@ function processEmails() {
     // Check required properties
     validateConfiguration();
     
-    // Build search query for multiple contract management tool senders
-    // 複数の契約管理ツールからのメールを検索
+    // Build search query for multiple contract management tool senders and Docusign
+    // 複数の契約管理ツールからのメールとDocusignを検索
     const senderQueries = CONFIG.SENDER_EMAILS.map(email => `from:${email}`);
-    let query = `(${senderQueries.join(' OR ')}) -label:${CONFIG.GMAIL_LABEL}`;
+    
+    // Add Docusign subject-based search if enabled
+    const searchQueries = [senderQueries.join(' OR ')];
+    
+    if (CONFIG.DOCUSIGN_INTEGRATION?.ENABLE) {
+      // Build flexible Docusign search query with both sender and subject patterns
+      const docusignSearchTerms = [];
+      
+      // Add sender-based searches
+      if (CONFIG.DOCUSIGN_INTEGRATION.SENDER_PATTERNS?.length > 0) {
+        docusignSearchTerms.push('from:docusign.net');  // Domain-based search
+        docusignSearchTerms.push('"via Docusign"');     // Sender name pattern
+      }
+      
+      // Add subject-based searches
+      if (CONFIG.DOCUSIGN_INTEGRATION.SUBJECT_PATTERNS?.length > 0) {
+        docusignSearchTerms.push('subject:"Complete with Docusign"');
+        docusignSearchTerms.push('subject:"via Docusign"');
+        docusignSearchTerms.push('subject:"Completed:"');
+        docusignSearchTerms.push('subject:"has been completed"');
+        docusignSearchTerms.push('subject:"document signed"');
+      }
+      
+      if (docusignSearchTerms.length > 0) {
+        const docusignQuery = `(${docusignSearchTerms.join(' OR ')})`;
+        searchQueries.push(docusignQuery);
+        console.log(`Docusign detection enabled with ${docusignSearchTerms.length} search terms`);
+      }
+    }
+    
+    let query = `(${searchQueries.join(' OR ')}) -label:${CONFIG.GMAIL_LABEL} -label:${CONFIG.GMAIL_SKIP_LABEL}`;
     
     // Remove recipient filtering - now using content-based duplicate detection
     console.log('Using content-based duplicate detection (no recipient filtering)');
@@ -600,6 +673,17 @@ function showConfiguration() {
     console.log(`  Total patterns: ${CONFIG.SUBJECT_PATTERNS?.PATTERNS?.length || 0}`);
     console.log(`  Match mode: ${CONFIG.SUBJECT_PATTERNS?.MATCH_MODE}`);
     
+    // Docusign integration settings
+    console.log(`\nDocusign Integration:`);
+    console.log(`  Docusign detection: ${CONFIG.DOCUSIGN_INTEGRATION?.ENABLE ? 'ENABLED' : 'DISABLED'}`);
+    if (CONFIG.DOCUSIGN_INTEGRATION?.ENABLE) {
+      console.log(`  Sender patterns: ${CONFIG.DOCUSIGN_INTEGRATION.SENDER_PATTERNS?.length || 0}`);
+      console.log(`  Subject patterns: ${CONFIG.DOCUSIGN_INTEGRATION.SUBJECT_PATTERNS?.length || 0}`);
+      console.log(`  Detection mode: ${CONFIG.DOCUSIGN_INTEGRATION.DETECTION_MODE || 'sender_or_subject'}`);
+      console.log(`  PDF attachment required: ${CONFIG.DOCUSIGN_INTEGRATION.REQUIRE_PDF_ATTACHMENT ? 'YES' : 'NO'}`);
+      console.log(`  Processing: All Docusign emails (no recipient filtering)`);
+    }
+    
     // Processing settings
     console.log(`\nProcessing Settings:`);
     console.log(`  Max emails per run: ${CONFIG.MAX_EMAILS_PER_RUN}`);
@@ -667,6 +751,121 @@ function getConfiguredSenderEmails() {
   
   // Remove duplicates and return
   return [...new Set(emails)];
+}
+
+/**
+ * Detect message source type (sender-based or Docusign)
+ * メッセージのソースタイプを検出（送信者ベースまたはDocusign）
+ * 
+ * @param {GmailMessage} message - Gmail message object
+ * @returns {Object} - {type: 'SENDER_BASED'|'DOCUSIGN', details: {...}}
+ */
+function detectMessageSource(message) {
+  try {
+    const sender = message.getFrom();
+    const subject = message.getSubject();
+    const to = message.getTo();
+    const attachments = message.getAttachments();
+    
+    // Check if it's from a configured sender email (traditional contract tools)
+    const configuredEmails = getConfiguredSenderEmails();
+    const isSenderBased = configuredEmails.some(email => 
+      sender.toLowerCase().includes(email.toLowerCase())
+    );
+    
+    if (isSenderBased) {
+      return {
+        type: 'SENDER_BASED',
+        details: {
+          configuredSender: configuredEmails.find(email => 
+            sender.toLowerCase().includes(email.toLowerCase())
+          )
+        }
+      };
+    }
+    
+    // Check if it's a Docusign email (flexible sender and subject detection)
+    if (CONFIG.DOCUSIGN_INTEGRATION?.ENABLE) {
+      const senderPatterns = CONFIG.DOCUSIGN_INTEGRATION.SENDER_PATTERNS || [];
+      const subjectPatterns = CONFIG.DOCUSIGN_INTEGRATION.SUBJECT_PATTERNS || [];
+      const detectionMode = CONFIG.DOCUSIGN_INTEGRATION.DETECTION_MODE || 'sender_or_subject';
+      
+      // Test sender patterns
+      const senderMatch = senderPatterns.some(pattern => pattern.test(sender));
+      
+      // Test subject patterns
+      const subjectMatch = subjectPatterns.some(pattern => pattern.test(subject));
+      
+      let isDocusign = false;
+      let detectedBy = [];
+      
+      if (detectionMode === 'sender_or_subject') {
+        // Either sender OR subject must match
+        isDocusign = senderMatch || subjectMatch;
+      } else if (detectionMode === 'sender_and_subject') {
+        // Both sender AND subject must match
+        isDocusign = senderMatch && subjectMatch;
+      }
+      
+      if (senderMatch) detectedBy.push('sender_pattern');
+      if (subjectMatch) detectedBy.push('subject_pattern');
+      
+      if (isDocusign) {
+        // Additional verification: check for PDF attachment if required
+        if (CONFIG.DOCUSIGN_INTEGRATION.REQUIRE_PDF_ATTACHMENT) {
+          const hasPdfAttachment = attachments.some(attachment => 
+            attachment.getName().toLowerCase().endsWith('.pdf')
+          );
+          
+          if (!hasPdfAttachment) {
+            return {
+              type: 'FILTERED_OUT',
+              details: {
+                reason: 'Docusign email detected but no PDF attachment found',
+                senderMatch: senderMatch,
+                subjectMatch: subjectMatch,
+                attachmentCount: attachments.length,
+                detectedBy: detectedBy.join(', ')
+              }
+            };
+          }
+          
+          detectedBy.push('pdf_attachment_verified');
+        }
+        
+        return {
+          type: 'DOCUSIGN',
+          details: {
+            detectedBy: detectedBy.join(', '),
+            senderMatch: senderMatch,
+            subjectMatch: subjectMatch,
+            detectionMode: detectionMode,
+            hasPdfAttachment: CONFIG.DOCUSIGN_INTEGRATION.REQUIRE_PDF_ATTACHMENT ? 
+              attachments.some(att => att.getName().toLowerCase().endsWith('.pdf')) : 'not_checked',
+            attachmentCount: attachments.length,
+            recipient: to
+          }
+        };
+      }
+    }
+    
+    return {
+      type: 'UNKNOWN',
+      details: {
+        sender: sender,
+        subject: subject
+      }
+    };
+    
+  } catch (error) {
+    console.error('Error detecting message source:', error);
+    return {
+      type: 'ERROR',
+      details: {
+        error: error.message
+      }
+    };
+  }
 }
 
 /**
@@ -895,6 +1094,126 @@ function debugHelloSignEmails() {
 }
 
 /**
+ * Debug Docusign email processing specifically
+ * Docusignメール処理の専用デバッグ
+ */
+function debugDocusignEmails() {
+  console.log('=== DEBUGGING DOCUSIGN EMAIL PROCESSING ===');
+  
+  try {
+    // Check if Docusign integration is enabled
+    if (!CONFIG.DOCUSIGN_INTEGRATION?.ENABLE) {
+      console.log('❌ Docusign integration is disabled in configuration');
+      console.log('Enable by setting CONFIG.DOCUSIGN_INTEGRATION.ENABLE = true');
+      return;
+    }
+    
+    console.log('✓ Docusign integration enabled');
+    console.log(`Sender patterns: ${CONFIG.DOCUSIGN_INTEGRATION.SENDER_PATTERNS?.length || 0}`);
+    console.log(`Subject patterns: ${CONFIG.DOCUSIGN_INTEGRATION.SUBJECT_PATTERNS?.length || 0}`);
+    console.log(`Detection mode: ${CONFIG.DOCUSIGN_INTEGRATION.DETECTION_MODE || 'sender_or_subject'}`);
+    console.log(`PDF attachment required: ${CONFIG.DOCUSIGN_INTEGRATION.REQUIRE_PDF_ATTACHMENT ? 'YES' : 'NO'}`);
+    
+    // Build Docusign search query (same as in processEmails)
+    const docusignSearchTerms = [];
+    
+    // Add sender-based searches
+    if (CONFIG.DOCUSIGN_INTEGRATION.SENDER_PATTERNS?.length > 0) {
+      docusignSearchTerms.push('from:docusign.net');  // Domain-based search
+      docusignSearchTerms.push('"via Docusign"');     // Sender name pattern
+    }
+    
+    // Add subject-based searches
+    if (CONFIG.DOCUSIGN_INTEGRATION.SUBJECT_PATTERNS?.length > 0) {
+      docusignSearchTerms.push('subject:"Complete with Docusign"');
+      docusignSearchTerms.push('subject:"via Docusign"');
+      docusignSearchTerms.push('subject:"Completed:"');
+      docusignSearchTerms.push('subject:"has been completed"');
+      docusignSearchTerms.push('subject:"document signed"');
+    }
+    
+    let query = `(${docusignSearchTerms.join(' OR ')}) -label:${CONFIG.GMAIL_LABEL}`;
+    
+    console.log(`Gmail search query: ${query}`);
+    
+    const threads = GmailApp.search(query, 0, 10);
+    console.log(`Found ${threads.length} potential Docusign email threads`);
+    
+    if (threads.length === 0) {
+      console.log('No Docusign emails found. Possible reasons:');
+      console.log('1. No Docusign completion emails in your Gmail');
+      console.log('2. All emails already processed (have the Contract_Processed label)');
+      console.log('3. Sender/subject patterns do not match actual Docusign emails');
+      console.log('4. Detection mode requires both sender AND subject match');
+      
+      // Try broader search
+      const broadQuery = 'subject:"Docusign"';
+      const broadThreads = GmailApp.search(broadQuery, 0, 5);
+      console.log(`Broader search (subject:"Docusign"): ${broadThreads.length} results`);
+      
+      if (broadThreads.length > 0) {
+        console.log('Sample Docusign email subjects:');
+        broadThreads.slice(0, 3).forEach((thread, index) => {
+          const messages = thread.getMessages();
+          if (messages.length > 0) {
+            const message = messages[0];
+            console.log(`${index + 1}. From: ${message.getFrom()}`);
+            console.log(`   To: ${message.getTo()}`);
+            console.log(`   Subject: ${message.getSubject()}`);
+          }
+        });
+      }
+      
+      return;
+    }
+    
+    // Test message source detection and pattern matching on Docusign emails
+    console.log('\nTesting message source detection and pattern matching:');
+    threads.slice(0, 5).forEach((thread, index) => {
+      const messages = thread.getMessages();
+      if (messages.length === 0) {
+        console.log(`\n--- Docusign Email ${index + 1} ---`);
+        console.log('No messages in thread');
+        return;
+      }
+      
+      const message = messages[0]; // Get first message in thread
+      const subject = message.getSubject();
+      const sender = message.getFrom();
+      const to = message.getTo();
+      
+      console.log(`\n--- Docusign Email ${index + 1} ---`);
+      console.log(`From: ${sender}`);
+      console.log(`To: ${to}`);
+      console.log(`Subject: "${subject}"`);
+      
+      // Test message source detection
+      const messageSource = detectMessageSource(message);
+      console.log(`Source detection: ${messageSource.type}`);
+      console.log(`Details: ${JSON.stringify(messageSource.details)}`);
+      
+      // Test pattern matching
+      const patternResult = checkSubjectPattern(subject, messageSource.type);
+      console.log(`Pattern match: ${patternResult.isMatch ? '✅ MATCHES' : '❌ NO MATCH'}`);
+      
+      if (patternResult.isMatch && patternResult.matchedPattern) {
+        console.log(`Matched pattern: ${patternResult.matchedPattern}`);
+      }
+      
+      if (!patternResult.isMatch && patternResult.checkedPatterns) {
+        console.log(`Checked ${patternResult.checkedPatterns.length} patterns`);
+      }
+    });
+    
+    console.log('\n=== Docusign Debug Complete ===');
+    
+  } catch (error) {
+    console.error('Error debugging Docusign emails:', error);
+    throw error;
+  }
+}
+
+/**
  * Clean up old processed messages (default: 7 days)
  * 古い処理済みメッセージをクリーンアップ（デフォルト: 7日）
  * 
@@ -1097,3 +1416,145 @@ function checkPropertiesDetailed() {
     throw error;
   }
 }
+
+/**
+ * Show statistics for skipped emails
+ * スキップされたメールの統計を表示
+ */
+function showSkippedEmailStats() {
+  console.log('=== Skipped Email Statistics ===');
+  
+  try {
+    // Get skipped label
+    const skipLabel = GmailApp.getUserLabelByName(CONFIG.GMAIL_SKIP_LABEL);
+    
+    if (!skipLabel) {
+      console.log('No skipped emails found (label does not exist)');
+      return;
+    }
+    
+    // Get threads with skip label
+    const threads = skipLabel.getThreads(0, 100); // Get up to 100 threads
+    console.log(`Total skipped threads: ${threads.length}`);
+    
+    if (threads.length === 0) {
+      return;
+    }
+    
+    // Analyze skipped emails
+    const stats = {
+      total: 0,
+      bySender: {},
+      byReason: {
+        pattern_mismatch: 0,
+        no_pdf_attachment: 0,
+        unknown_sender: 0,
+        filtered_out: 0
+      },
+      recentExamples: []
+    };
+    
+    threads.forEach((thread, index) => {
+      const messages = thread.getMessages();
+      messages.forEach(message => {
+        stats.total++;
+        
+        const sender = message.getFrom();
+        const subject = message.getSubject();
+        const date = message.getDate();
+        
+        // Count by sender
+        const senderEmail = sender.match(/<(.+?)>/) ? sender.match(/<(.+?)>/)[1] : sender;
+        stats.bySender[senderEmail] = (stats.bySender[senderEmail] || 0) + 1;
+        
+        // Add recent examples (first 5)
+        if (stats.recentExamples.length < 5) {
+          stats.recentExamples.push({
+            date: Utilities.formatDate(date, 'JST', 'yyyy-MM-dd HH:mm'),
+            sender: sender,
+            subject: subject
+          });
+        }
+      });
+    });
+    
+    // Display statistics
+    console.log(`\nTotal skipped messages: ${stats.total}`);
+    
+    console.log('\nTop senders with skipped emails:');
+    const sortedSenders = Object.entries(stats.bySender)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10);
+    
+    sortedSenders.forEach(([sender, count]) => {
+      console.log(`  ${sender}: ${count} messages`);
+    });
+    
+    console.log('\nRecent skipped emails:');
+    stats.recentExamples.forEach(example => {
+      console.log(`  ${example.date} - ${example.sender}`);
+      console.log(`    Subject: ${example.subject}`);
+    });
+    
+    console.log('\nTo manually review skipped emails:');
+    console.log('  1. Go to Gmail');
+    console.log(`  2. Search for: label:${CONFIG.GMAIL_SKIP_LABEL}`);
+    console.log('  3. Review if any patterns need to be added');
+    
+  } catch (error) {
+    console.error('Error getting skipped email statistics:', error);
+  }
+}
+
+/**
+ * Clean up old skip labels (optional maintenance function)
+ * 古いスキップラベルをクリーンアップ（オプションのメンテナンス機能）
+ * 
+ * @param {number} daysOld - Remove skip labels older than this many days
+ * @param {boolean} dryRun - If true, only show what would be removed
+ */
+function cleanupOldSkipLabels(daysOld = 30, dryRun = true) {
+  console.log(`=== Cleanup Skip Labels (${dryRun ? 'DRY RUN' : 'ACTUAL'}) ===`);
+  
+  try {
+    const skipLabel = GmailApp.getUserLabelByName(CONFIG.GMAIL_SKIP_LABEL);
+    
+    if (!skipLabel) {
+      console.log('No skip label found');
+      return;
+    }
+    
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - daysOld);
+    
+    const threads = skipLabel.getThreads();
+    let removedCount = 0;
+    
+    threads.forEach(thread => {
+      const lastMessageDate = thread.getLastMessageDate();
+      
+      if (lastMessageDate < cutoffDate) {
+        if (!dryRun) {
+          thread.removeLabel(skipLabel);
+        }
+        removedCount++;
+        
+        if (removedCount <= 5) {
+          console.log(`  ${dryRun ? 'Would remove' : 'Removed'} label from: ${thread.getFirstMessageSubject()}`);
+          console.log(`    Last message: ${Utilities.formatDate(lastMessageDate, 'JST', 'yyyy-MM-dd')}`);
+        }
+      }
+    });
+    
+    console.log(`\n${dryRun ? 'Would remove' : 'Removed'} skip label from ${removedCount} threads older than ${daysOld} days`);
+    
+    if (dryRun && removedCount > 0) {
+      console.log('\nTo actually remove labels, run: cleanupOldSkipLabels(30, false)');
+    }
+    
+  } catch (error) {
+    console.error('Error cleaning up skip labels:', error);
+  }
+}
+// Aliases for convenience
+const checkSkipped = showSkippedEmailStats;

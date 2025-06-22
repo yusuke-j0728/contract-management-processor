@@ -210,17 +210,21 @@ The system supports multiple regex patterns for contract completion emails:
 - `getConfiguredSenderEmails()` - Get all configured sender emails dynamically (supports up to 20)
 - `testProcessEmails()` - Test function for manual email processing
 - `debugHelloSignEmails()` - Debug HelloSign email processing specifically (pattern matching, sender config)
+- `debugDocusignEmails()` - Debug Docusign email processing specifically
 - `checkProperties()` - View current property usage and statistics (alias for showAllProperties)
 - `cleanupOld(days, dryRun)` - Clean up processed messages older than X days (alias)
 - `fixProperties()` - Emergency cleanup when property limit is reached (alias)
+- `showSkippedEmailStats()` or `checkSkipped()` - Display statistics for skipped emails
+- `cleanupOldSkipLabels(days, dryRun)` - Remove skip labels from old emails
 
 ### emailProcessor.js
 - `processMessage()` - Process individual contract emails with enhanced metadata
-- `checkSubjectPattern()` - Multi-pattern contract matching (includes Dropbox Sign)
+- `checkSubjectPattern()` - Multi-pattern contract matching (includes Dropbox Sign and Docusign)
 - `isMessageAlreadyProcessed()` - Spreadsheet-based duplicate prevention
 - `getMessageRecipients()` - Extract all recipients (To, CC, BCC) from message
 - `extractEmailAddresses()` - Extract email addresses from recipient field string
 - `createRecipientHash()` - Create hash for recipient combination tracking
+- **Auto-skip feature**: Automatically adds `Contract_Skipped` label to non-matching emails
 
 ### driveManager.js
 - `processAttachments()` - Handle contract PDF saving with intelligent duplicate detection
