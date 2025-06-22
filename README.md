@@ -34,6 +34,7 @@ A specialized Google Apps Script-based system designed for contract management w
 - ⏰ **Automated Scheduling**: Continuous monitoring every 5 minutes
 - 🔄 **Smart Duplicate Prevention**: Content-based detection prevents duplicate PDF storage while ensuring all recipients receive notifications
 - 📊 **Unlimited Tracking**: Spreadsheet-based duplicate tracking with no Script Properties limitations
+- 🏷️ **Intelligent Skip Labels**: Automatically skips non-contract emails to prevent repeated checking
 - 🛡️ **Error Recovery**: Robust error handling with detailed logging
 - 📊 **Performance Monitoring**: Built-in analytics and health checks
 
@@ -716,6 +717,8 @@ contract-management-processor/
 - `getOrCreateDriveFolder()`: Drive folder management
 - 🆕 `markMessageAsProcessed()`: Store processed message IDs
 - 🆕 `cleanupOldProcessedMessages()`: Maintenance function for old records
+- 🆕 `showSkippedEmailStats()` or `checkSkipped()`: Display statistics for skipped emails
+- 🆕 `cleanupOldSkipLabels()`: Remove skip labels from old emails
 
 #### `emailProcessor.js`
 - `processMessage()`: Individual email processing with duplicate prevention and recipient tracking
@@ -723,6 +726,7 @@ contract-management-processor/
 - 🆕 `formatEmailBody()`: Smart email content formatting (up to 7500 chars)
 - 🆕 `getMessageRecipient()`: Extract recipient email from message To field
 - 🆕 `extractEmailAddresses()`: Parse multiple email addresses from string
+- 🆕 **Auto-skip feature**: Adds `Contract_Skipped` label to non-matching emails
 
 #### `driveManager.js`
 - 🆕 `processAttachments()`: PDF-only contract processing
@@ -1021,6 +1025,18 @@ Sending follow-up message for 2 saved PDFs...
 **License**: MIT License
 
 ## Recent Updates
+
+### 🆕 Version 2.6 - Intelligent Skip Labels & Enhanced Docusign Support
+- **Smart Skip Labels**: Automatically adds `Contract_Skipped` label to non-matching emails
+  - Prevents repeated checking of irrelevant emails
+  - Reduces processing overhead and improves performance
+  - Includes emails without PDF attachments (for Docusign)
+- **Skip Email Management**:
+  - `showSkippedEmailStats()` or `checkSkipped()` - View statistics of skipped emails
+  - `cleanupOldSkipLabels(days, dryRun)` - Clean up old skip labels
+  - Review skipped emails in Gmail with search: `label:Contract_Skipped`
+- **Enhanced Search Query**: Now excludes both `Contract_Processed` and `Contract_Skipped` labels
+- **Improved Docusign Detection**: Better handling of emails without PDF attachments
 
 ### 🆕 Version 2.5 - HelloSign Support & Testing Improvements
 - **HelloSign/Dropbox Sign Integration**: Full support for HelloSign email processing

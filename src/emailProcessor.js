@@ -31,15 +31,64 @@ function processMessage(message) {
     console.log(`Message ID: ${messageId}`);
     console.log(`Attachments: ${attachments.length}`);
     
-    // Check subject pattern using advanced pattern matching
-    const patternMatch = checkSubjectPattern(subject);
+    // Detect message source type (sender-based or Docusign)
+    const messageSource = detectMessageSource(message);
+    console.log(`Message source type: ${messageSource.type}`);
+    
+    if (messageSource.type === 'FILTERED_OUT') {
+      console.log(`Message filtered out: ${messageSource.details.reason}`);
+      
+      // Add skip label to avoid checking this message again
+      try {
+        const skipLabel = GmailApp.getUserLabelByName(CONFIG.GMAIL_SKIP_LABEL) || 
+                         GmailApp.createLabel(CONFIG.GMAIL_SKIP_LABEL);
+        message.getThread().addLabel(skipLabel);
+        console.log(`Added ${CONFIG.GMAIL_SKIP_LABEL} label to skip future processing`);
+      } catch (error) {
+        console.error('Error adding skip label:', error);
+      }
+      
+      return false;
+    }
+    
+    if (messageSource.type === 'UNKNOWN' || messageSource.type === 'ERROR') {
+      console.log(`Unknown message type or error: ${JSON.stringify(messageSource.details)}`);
+      
+      // Add skip label to avoid checking this message again
+      try {
+        const skipLabel = GmailApp.getUserLabelByName(CONFIG.GMAIL_SKIP_LABEL) || 
+                         GmailApp.createLabel(CONFIG.GMAIL_SKIP_LABEL);
+        message.getThread().addLabel(skipLabel);
+        console.log(`Added ${CONFIG.GMAIL_SKIP_LABEL} label to skip future processing`);
+      } catch (error) {
+        console.error('Error adding skip label:', error);
+      }
+      
+      return false;
+    }
+    
+    // Check subject pattern using message type
+    const patternMatch = checkSubjectPattern(subject, messageSource.type);
     if (!patternMatch.isMatch) {
       console.log(`Subject pattern mismatch: ${subject}`);
+      console.log(`Message type: ${messageSource.type}`);
       console.log(`Checked patterns: ${patternMatch.checkedPatterns}`);
+      
+      // Add skip label to avoid checking this message again
+      try {
+        const skipLabel = GmailApp.getUserLabelByName(CONFIG.GMAIL_SKIP_LABEL) || 
+                         GmailApp.createLabel(CONFIG.GMAIL_SKIP_LABEL);
+        message.getThread().addLabel(skipLabel);
+        console.log(`Added ${CONFIG.GMAIL_SKIP_LABEL} label to skip future processing`);
+      } catch (error) {
+        console.error('Error adding skip label:', error);
+      }
+      
       return false;
     }
     
     console.log(`Subject pattern matched: ${patternMatch.matchedPattern}`);
+    console.log(`Message type: ${messageSource.type}`);
     console.log('Processing email...');
     
     // Initialize email record for spreadsheet logging
@@ -361,17 +410,24 @@ function createRecipientHash(recipients) {
 }
 
 /**
- * Advanced subject pattern checking with multiple pattern support
- * 複数パターン対応の高度な件名パターンチェック
+ * Advanced subject pattern checking with multiple pattern support and Docusign integration
+ * 複数パターン対応とDocusign統合の高度な件名パターンチェック
  * 
  * @param {string} subject - Email subject
+ * @param {string} messageType - Message type ('SENDER_BASED', 'DOCUSIGN', etc.)
  * @returns {Object} - Pattern match result with details
  */
-function checkSubjectPattern(subject) {
+function checkSubjectPattern(subject, messageType = 'SENDER_BASED') {
   try {
     console.log(`Checking subject pattern for: "${subject}"`);
+    console.log(`Message type: ${messageType}`);
     
-    // Use advanced pattern matching if enabled
+    // Handle Docusign-specific pattern matching
+    if (messageType === 'DOCUSIGN' && CONFIG.DOCUSIGN_INTEGRATION?.ENABLE) {
+      return checkDocusignPatterns(subject);
+    }
+    
+    // Use advanced pattern matching if enabled for traditional contract tools
     if (CONFIG.SUBJECT_PATTERNS && CONFIG.SUBJECT_PATTERNS.ENABLE_MULTIPLE_PATTERNS) {
       return checkMultiplePatterns(subject);
     }
@@ -464,6 +520,88 @@ function checkMultiplePatterns(subject) {
       finalResult: finalMatch
     }
   };
+}
+
+/**
+ * Check subject against Docusign patterns
+ * Docusign パターンに対する件名チェック
+ * 
+ * @param {string} subject - Email subject
+ * @returns {Object} - Detailed match result for Docusign
+ */
+function checkDocusignPatterns(subject) {
+  try {
+    console.log('Checking Docusign-specific patterns...');
+    
+    const patterns = CONFIG.DOCUSIGN_INTEGRATION.SUBJECT_PATTERNS || [];
+    const results = [];
+    const checkedPatterns = [];
+    
+    for (let i = 0; i < patterns.length; i++) {
+      const pattern = patterns[i];
+      const patternString = pattern.toString();
+      checkedPatterns.push(patternString);
+      
+      try {
+        const isMatch = pattern.test(subject);
+        
+        results.push({
+          pattern: patternString,
+          isMatch: isMatch,
+          matchDetails: isMatch ? subject.match(pattern) : null
+        });
+        
+        console.log(`Docusign Pattern ${i + 1}: ${patternString} -> ${isMatch ? 'MATCH' : 'NO MATCH'}`);
+        
+        // Return immediately on first match
+        if (isMatch) {
+          return {
+            isMatch: true,
+            matchedPattern: patternString,
+            checkedPatterns: checkedPatterns,
+            allResults: results,
+            messageType: 'DOCUSIGN',
+            summary: {
+              totalPatterns: patterns.length,
+              matchedCount: 1,
+              finalResult: true
+            }
+          };
+        }
+        
+      } catch (error) {
+        console.error(`Error testing Docusign pattern ${i + 1}:`, error);
+        results.push({
+          pattern: patternString,
+          isMatch: false,
+          error: error.message
+        });
+      }
+    }
+    
+    // No matches found
+    return {
+      isMatch: false,
+      matchedPattern: null,
+      checkedPatterns: checkedPatterns,
+      allResults: results,
+      messageType: 'DOCUSIGN',
+      summary: {
+        totalPatterns: patterns.length,
+        matchedCount: 0,
+        finalResult: false
+      }
+    };
+    
+  } catch (error) {
+    console.error('Error checking Docusign patterns:', error);
+    return {
+      isMatch: false,
+      error: error.message,
+      checkedPatterns: [],
+      messageType: 'DOCUSIGN'
+    };
+  }
 }
 
 /**
