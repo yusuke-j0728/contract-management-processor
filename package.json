@@ -1,0 +1,30 @@
+{
+  "name": "contract-management-processor",
+  "version": "1.0.0",
+  "description": "Contract Management Email Processor - Automated contract completion tracking with PDF storage and spreadsheet logging",
+  "scripts": {
+    "login": "clasp login",
+    "push": "clasp push --force",
+    "pull": "clasp pull",
+    "logs": "clasp tail-logs",
+    "open": "clasp open-script",
+    "setup": "clasp create --type standalone --title 'Contract Management Email Processor'"
+  },
+  "devDependencies": {
+    "@google/clasp": "^2.4.2",
+    "@types/google-apps-script": "^1.0.83"
+  },
+  "keywords": [
+    "contract-management",
+    "docusign",
+    "adobe-sign",
+    "contract-tracking",
+    "google-apps-script",
+    "automation",
+    "pdf-processing",
+    "slack-notifications",
+    "spreadsheet-logging"
+  ],
+  "author": "",
+  "license": "MIT"
+}
