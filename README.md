@@ -18,10 +18,11 @@ A specialized Google Apps Script-based system designed for contract management w
 - 📊 **File Metadata Tracking**: Records PDF filenames and storage locations
 
 ### 📊 Contract Tracking & Analytics
-- 📈 **Comprehensive Spreadsheet**: Logs all contract data with 13 specialized columns
-- 🔍 **Advanced Search**: Filter by contract type, management tool, or contract party
+- 📈 **Comprehensive Spreadsheet**: Logs all contract data with 14 specialized columns including recipient tracking
+- 🔍 **Advanced Search**: Filter by contract type, management tool, contract party, or recipient
 - 📊 **Daily Summaries**: Generate contract completion statistics and reports
 - 📈 **Performance Metrics**: Track success rates and processing times
+- 📧 **Recipient Tracking**: Records which email address received each contract notification
 
 ### 🚨 Real-time Notifications
 - 📱 **Slack Integration**: Instant notifications with contract details and PDF links
@@ -47,7 +48,7 @@ A specialized Google Apps Script-based system designed for contract management w
 ### 2. Local Development Setup
 ```bash
 # Clone and setup
-git clone <your-repo>
+git clone https://github.com/yusuke-j0728/contract-management-processor.git
 cd contract-management-processor
 
 # Install dependencies
@@ -762,6 +763,31 @@ contract-management-processor/
 
 ### Common Issues & Solutions
 
+#### 🔍 **Contract Tool Emails Not Being Processed**
+
+**Symptom**: Emails from specific contract management tools (like HelloSign/Dropbox Sign) are not being processed
+
+**Debug Steps**:
+```javascript
+// 1. Check if sender email is configured
+showConfiguration();  // From: src/main.js
+
+// 2. Debug specific contract tool (e.g., HelloSign)
+debugHelloSignEmails();  // From: src/main.js
+// This checks:
+// - Sender email configuration
+// - Gmail search results  
+// - Subject pattern matching
+
+// 3. Manually test email processing
+processEmails();  // From: src/main.js
+```
+
+**Common Solutions**:
+- **Missing sender email**: Add the exact sender email to Script Properties (e.g., `SENDER_EMAIL_7 = noreply@mail.hellosign.com`)
+- **Pattern mismatch**: Check if email subjects match configured patterns
+- **Already processed**: Emails with `Contract_Processed` label are skipped
+
 #### 🔧 **Script Properties Limit (50 Properties)**
 **Symptom**: "Your script has more than 50 properties" or property setting fails
 
@@ -995,6 +1021,19 @@ Sending follow-up message for 2 saved PDFs...
 **License**: MIT License
 
 ## Recent Updates
+
+### 🆕 Version 2.5 - HelloSign Support & Testing Improvements
+- **HelloSign/Dropbox Sign Integration**: Full support for HelloSign email processing
+  - Fixed Gmail search query to exclude processed emails (`-label:Contract_Processed`)
+  - Added dedicated debugging function: `debugHelloSignEmails()`
+  - Enhanced pattern matching for "You've been copied on" notifications
+- **Safe Testing Framework**: Improved test safety and debugging
+  - `runAllTests()` no longer creates production triggers accidentally
+  - Added `testTriggerOperations()` - safe trigger testing without side effects
+  - New cleanup functions: `checkAndCleanupTriggers()` for trigger management
+- **Duplicate PDF Handling**: Enhanced duplicate display
+  - Shows "Duplicate" text instead of folder links for duplicate PDFs
+  - Cleaner spreadsheet display with direct PDF access for unique files
 
 ### 🆕 Version 2.4 - Enhanced Contract Tracking & PDF Direct Links
 - **Recipient Email Tracking**: New column to track who received each contract notification

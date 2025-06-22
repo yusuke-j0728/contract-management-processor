@@ -128,16 +128,17 @@ Tracks all contract processing events (one record per recipient):
 | A | 受信日時 | Contract completion timestamp |
 | B | 契約管理ツール | Contract management tool (Contract Tool 1, Contract Tool 2, Contract Tool 7, etc.) |
 | C | 送信者メール | Contract tool sender email |
-| D | 件名 | Contract email subject |
-| E | 契約タイプ | Auto-detected contract type (Employment, NDA, Service Agreement) |
-| F | 契約相手 | Extracted contract party/company name |
-| G | PDFファイル名 | Contract PDF filename(s) with duplicate indicators |
-| H | DriveフォルダURL | Direct link to stored contract PDFs (or existing for duplicates) |
-| I | 処理状態 | Processing status (Success/Error) |
-| J | Slack通知済み | Slack notification delivery status |
-| K | 本文要約 | Contract email content summary |
-| L | メッセージID | Unique Gmail message identifier |
-| M | エラーログ | Processing error details |
+| D | 受信メール | Recipient email address (who received the contract) |
+| E | 件名 | Contract email subject |
+| F | 契約タイプ | Auto-detected contract type (Employment, NDA, Service Agreement) |
+| G | 契約相手 | Extracted contract party/company name |
+| H | PDFファイル名 | Contract PDF filename(s) with duplicate indicators |
+| I | PDF直接リンク | Direct clickable links to PDF files ("Duplicate" for duplicates) |
+| J | 処理状態 | Processing status (Success/Error) |
+| K | Slack通知済み | Slack notification delivery status |
+| L | 本文要約 | Contract email content summary |
+| M | メッセージID | Unique Gmail message identifier |
+| N | エラーログ | Processing error details |
 
 #### Content Duplicate Management (コンテンツ重複管理_Content_Duplicates)
 Tracks unique contract content to prevent duplicate PDF storage:
@@ -150,7 +151,7 @@ Tracks unique contract content to prevent duplicate PDF storage:
 | D | 送信日時 | Email send date/time |
 | E | 件名 | Email subject |
 | F | PDFファイル名 | PDF filenames |
-| G | DriveフォルダURL | Drive folder URL where PDFs are stored |
+| G | PDF直接リンク | Direct links to stored PDF files |
 | H | 初回保存日時 | First save date/time |
 
 ## Contract Pattern Matching
@@ -208,6 +209,7 @@ The system supports multiple regex patterns for contract completion emails:
 - `getContractToolName()` - Get contract tool name from email address
 - `getConfiguredSenderEmails()` - Get all configured sender emails dynamically (supports up to 20)
 - `testProcessEmails()` - Test function for manual email processing
+- `debugHelloSignEmails()` - Debug HelloSign email processing specifically (pattern matching, sender config)
 - `checkProperties()` - View current property usage and statistics (alias for showAllProperties)
 - `cleanupOld(days, dryRun)` - Clean up processed messages older than X days (alias)
 - `fixProperties()` - Emergency cleanup when property limit is reached (alias)
@@ -235,11 +237,14 @@ The system supports multiple regex patterns for contract completion emails:
 ### triggerManager.js
 - `setupInitialTrigger()` - Setup initial email monitoring trigger
 - `createTrigger()` - Create time-based trigger for automatic processing
-- `deleteTrigger()` - Delete existing trigger by handler function
-- `checkTriggerHealth()` - Check if monitoring trigger is healthy
+- `deleteExistingTriggers()` - Delete all existing email processing triggers
+- `checkTriggerHealth()` - Check if monitoring trigger is healthy (PRODUCTION - creates triggers)
+- `testTriggerOperations()` - Test trigger functions safely (NO trigger creation)
+- `testTriggerHealth()` - Test trigger health check in read-only mode
+- `checkAndCleanupTriggers()` - Check for unwanted triggers and provide cleanup guidance
 
 ### testRunner.js
-- `runAllTests()` - Run comprehensive test suite
+- `runAllTests()` - Run comprehensive test suite (SAFE - no production triggers created)
 - `testConfiguration()` - Test configuration setup
 - `testSlackNotifications()` - Test Slack notification system
 
