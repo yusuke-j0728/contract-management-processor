@@ -75,10 +75,11 @@ const CONFIG = {
       /.*捺印済.*合意締結/,
       
       // Contract Tool 7 patterns
-      /You've been copied on.*signed by/i,
+      /.*You've been copied on.*signed by/i,
       /.*has been completed/i,
       /.*signature.*completed/i,
       /.*agreement.*signed by.*and/i,
+      /.*You just signed.*/i,
       
       // Generic contract patterns
       /contract.*pdf/i,
@@ -121,6 +122,42 @@ const CONFIG = {
     
     // Additional verification requirements
     REQUIRE_PDF_ATTACHMENT: true,             // Only process emails with PDF attachments
+    
+    // Detection mode: 'sender_or_subject' (either match), 'sender_and_subject' (both required)
+    DETECTION_MODE: 'sender_or_subject'
+  },
+  
+  // Dropbox Sign/HelloSign integration settings for organizational email forwarding
+  // Handles emails sent via organizational email addresses but originating from Dropbox Sign
+  DROPBOX_SIGN_INTEGRATION: {
+    ENABLE: true,  // Enable Dropbox Sign/HelloSign email detection
+    
+    // Sender patterns for Dropbox Sign emails (including organizational forwarding)
+    SENDER_PATTERNS: [
+      /.*via Dropbox Sign.*/i,         // "Name via Dropbox Sign" in sender field
+      /.*via HelloSign.*/i,            // "Name via HelloSign" in sender field (legacy)
+      /'Dropbox Sign' via .*/i,        // "'Dropbox Sign' via organization" format
+      /'HelloSign' via .*/i            // "'HelloSign' via organization" format (legacy)
+    ],
+    
+    // Reply-to patterns for additional verification
+    REPLY_TO_PATTERNS: [
+      /.*@hellosign\.com$/i,           // Reply-to hellosign.com domain
+      /noreply@hellosign\.com$/i       // Specific noreply address
+    ],
+    
+    // Subject patterns for Dropbox Sign/HelloSign completion emails
+    SUBJECT_PATTERNS: [
+      /You've been copied on.*signed by/i,     // "You've been copied on X signed by Y"
+      /.*has been completed/i,                 // Generic completion messages
+      /.*signature.*completed/i,               // "Signature completed" notifications
+      /.*agreement.*signed by.*and/i,          // Multi-signer agreement notifications
+      /^You just signed.*/i,                   // "You just signed X" notifications
+      /.*document.*signed/i                    // Document signing completion
+    ],
+    
+    // Additional verification requirements
+    REQUIRE_PDF_ATTACHMENT: false,            // Dropbox Sign emails may not always have PDF attachments
     
     // Detection mode: 'sender_or_subject' (either match), 'sender_and_subject' (both required)
     DETECTION_MODE: 'sender_or_subject'
@@ -219,6 +256,38 @@ function processEmails() {
         const docusignQuery = `(${docusignSearchTerms.join(' OR ')})`;
         searchQueries.push(docusignQuery);
         console.log(`Docusign detection enabled with ${docusignSearchTerms.length} search terms`);
+      }
+    }
+    
+    if (CONFIG.DROPBOX_SIGN_INTEGRATION?.ENABLE) {
+      // Build flexible Dropbox Sign search query with sender and subject patterns
+      const dropboxSignSearchTerms = [];
+      
+      // Add sender-based searches
+      if (CONFIG.DROPBOX_SIGN_INTEGRATION.SENDER_PATTERNS?.length > 0) {
+        dropboxSignSearchTerms.push('"via Dropbox Sign"');     // "Name via Dropbox Sign" pattern
+        dropboxSignSearchTerms.push('"via HelloSign"');        // Legacy HelloSign pattern
+        dropboxSignSearchTerms.push("'Dropbox Sign' via");     // "'Dropbox Sign' via organization" pattern
+        dropboxSignSearchTerms.push("'HelloSign' via");        // "'HelloSign' via organization" pattern
+      }
+      
+      // Add reply-to based searches for better detection
+      if (CONFIG.DROPBOX_SIGN_INTEGRATION.REPLY_TO_PATTERNS?.length > 0) {
+        dropboxSignSearchTerms.push('from:hellosign.com');     // Reply-to domain search
+      }
+      
+      // Add subject-based searches
+      if (CONFIG.DROPBOX_SIGN_INTEGRATION.SUBJECT_PATTERNS?.length > 0) {
+        dropboxSignSearchTerms.push('subject:"You\'ve been copied on"');
+        dropboxSignSearchTerms.push('subject:"signed by"');
+        dropboxSignSearchTerms.push('subject:"has been completed"');
+        dropboxSignSearchTerms.push('subject:"You just signed"');
+      }
+      
+      if (dropboxSignSearchTerms.length > 0) {
+        const dropboxSignQuery = `(${dropboxSignSearchTerms.join(' OR ')})`;
+        searchQueries.push(dropboxSignQuery);
+        console.log(`Dropbox Sign detection enabled with ${dropboxSignSearchTerms.length} search terms`);
       }
     }
     
@@ -684,6 +753,18 @@ function showConfiguration() {
       console.log(`  Processing: All Docusign emails (no recipient filtering)`);
     }
     
+    // Dropbox Sign integration settings
+    console.log(`\nDropbox Sign Integration:`);
+    console.log(`  Dropbox Sign detection: ${CONFIG.DROPBOX_SIGN_INTEGRATION?.ENABLE ? 'ENABLED' : 'DISABLED'}`);
+    if (CONFIG.DROPBOX_SIGN_INTEGRATION?.ENABLE) {
+      console.log(`  Sender patterns: ${CONFIG.DROPBOX_SIGN_INTEGRATION.SENDER_PATTERNS?.length || 0}`);
+      console.log(`  Subject patterns: ${CONFIG.DROPBOX_SIGN_INTEGRATION.SUBJECT_PATTERNS?.length || 0}`);
+      console.log(`  Reply-to patterns: ${CONFIG.DROPBOX_SIGN_INTEGRATION.REPLY_TO_PATTERNS?.length || 0}`);
+      console.log(`  Detection mode: ${CONFIG.DROPBOX_SIGN_INTEGRATION.DETECTION_MODE || 'sender_or_subject'}`);
+      console.log(`  PDF attachment required: ${CONFIG.DROPBOX_SIGN_INTEGRATION.REQUIRE_PDF_ATTACHMENT ? 'YES' : 'NO'}`);
+      console.log(`  Processing: All Dropbox Sign emails via organizational forwarding`);
+    }
+    
     // Processing settings
     console.log(`\nProcessing Settings:`);
     console.log(`  Max emails per run: ${CONFIG.MAX_EMAILS_PER_RUN}`);
@@ -754,11 +835,11 @@ function getConfiguredSenderEmails() {
 }
 
 /**
- * Detect message source type (sender-based or Docusign)
- * メッセージのソースタイプを検出（送信者ベースまたはDocusign）
+ * Detect message source type (sender-based, Docusign, or Dropbox Sign)
+ * メッセージのソースタイプを検出（送信者ベース、Docusign、またはDropbox Sign）
  * 
  * @param {GmailMessage} message - Gmail message object
- * @returns {Object} - {type: 'SENDER_BASED'|'DOCUSIGN', details: {...}}
+ * @returns {Object} - {type: 'SENDER_BASED'|'DOCUSIGN'|'DROPBOX_SIGN', details: {...}}
  */
 function detectMessageSource(message) {
   try {
@@ -766,6 +847,18 @@ function detectMessageSource(message) {
     const subject = message.getSubject();
     const to = message.getTo();
     const attachments = message.getAttachments();
+    
+    // Get reply-to header for additional verification
+    let replyTo = '';
+    try {
+      const rawMessage = message.getRawContent();
+      const replyToMatch = rawMessage.match(/Reply-To: (.+)/i);
+      if (replyToMatch) {
+        replyTo = replyToMatch[1].trim();
+      }
+    } catch (error) {
+      console.log('Could not extract reply-to header, continuing without it');
+    }
     
     // Check if it's from a configured sender email (traditional contract tools)
     const configuredEmails = getConfiguredSenderEmails();
@@ -849,11 +942,85 @@ function detectMessageSource(message) {
       }
     }
     
+    // Check if it's a Dropbox Sign/HelloSign email (flexible sender and subject detection)
+    if (CONFIG.DROPBOX_SIGN_INTEGRATION?.ENABLE) {
+      const senderPatterns = CONFIG.DROPBOX_SIGN_INTEGRATION.SENDER_PATTERNS || [];
+      const subjectPatterns = CONFIG.DROPBOX_SIGN_INTEGRATION.SUBJECT_PATTERNS || [];
+      const replyToPatterns = CONFIG.DROPBOX_SIGN_INTEGRATION.REPLY_TO_PATTERNS || [];
+      const detectionMode = CONFIG.DROPBOX_SIGN_INTEGRATION.DETECTION_MODE || 'sender_or_subject';
+      
+      // Test sender patterns
+      const senderMatch = senderPatterns.some(pattern => pattern.test(sender));
+      
+      // Test subject patterns
+      const subjectMatch = subjectPatterns.some(pattern => pattern.test(subject));
+      
+      // Test reply-to patterns for additional verification
+      const replyToMatch = replyTo && replyToPatterns.some(pattern => pattern.test(replyTo));
+      
+      let isDropboxSign = false;
+      let detectedBy = [];
+      
+      if (detectionMode === 'sender_or_subject') {
+        // Either sender, subject, or reply-to must match
+        isDropboxSign = senderMatch || subjectMatch || replyToMatch;
+      } else if (detectionMode === 'sender_and_subject') {
+        // Both sender AND subject must match (reply-to is additional)
+        isDropboxSign = senderMatch && subjectMatch;
+      }
+      
+      if (senderMatch) detectedBy.push('sender_pattern');
+      if (subjectMatch) detectedBy.push('subject_pattern');
+      if (replyToMatch) detectedBy.push('reply_to_pattern');
+      
+      if (isDropboxSign) {
+        // Additional verification: check for PDF attachment if required
+        if (CONFIG.DROPBOX_SIGN_INTEGRATION.REQUIRE_PDF_ATTACHMENT) {
+          const hasPdfAttachment = attachments.some(attachment => 
+            attachment.getName().toLowerCase().endsWith('.pdf')
+          );
+          
+          if (!hasPdfAttachment) {
+            return {
+              type: 'FILTERED_OUT',
+              details: {
+                reason: 'Dropbox Sign email detected but no PDF attachment found (PDF required)',
+                senderMatch: senderMatch,
+                subjectMatch: subjectMatch,
+                replyToMatch: replyToMatch,
+                attachmentCount: attachments.length,
+                detectedBy: detectedBy.join(', ')
+              }
+            };
+          }
+          
+          detectedBy.push('pdf_attachment_verified');
+        }
+        
+        return {
+          type: 'DROPBOX_SIGN',
+          details: {
+            detectedBy: detectedBy.join(', '),
+            senderMatch: senderMatch,
+            subjectMatch: subjectMatch,
+            replyToMatch: replyToMatch,
+            detectionMode: detectionMode,
+            hasPdfAttachment: CONFIG.DROPBOX_SIGN_INTEGRATION.REQUIRE_PDF_ATTACHMENT ? 
+              attachments.some(att => att.getName().toLowerCase().endsWith('.pdf')) : 'not_checked',
+            attachmentCount: attachments.length,
+            recipient: to,
+            replyTo: replyTo
+          }
+        };
+      }
+    }
+    
     return {
       type: 'UNKNOWN',
       details: {
         sender: sender,
-        subject: subject
+        subject: subject,
+        replyTo: replyTo
       }
     };
     
@@ -1209,6 +1376,136 @@ function debugDocusignEmails() {
     
   } catch (error) {
     console.error('Error debugging Docusign emails:', error);
+    throw error;
+  }
+}
+
+/**
+ * Debug Dropbox Sign email processing specifically
+ * Dropbox Signメール処理の専用デバッグ
+ */
+function debugDropboxSignEmails() {
+  console.log('=== DEBUGGING DROPBOX SIGN EMAIL PROCESSING ===');
+  
+  try {
+    // Check if Dropbox Sign integration is enabled
+    if (!CONFIG.DROPBOX_SIGN_INTEGRATION?.ENABLE) {
+      console.log('❌ Dropbox Sign integration is disabled in configuration');
+      console.log('Enable by setting CONFIG.DROPBOX_SIGN_INTEGRATION.ENABLE = true');
+      return;
+    }
+    
+    console.log('✓ Dropbox Sign integration enabled');
+    console.log(`Sender patterns: ${CONFIG.DROPBOX_SIGN_INTEGRATION.SENDER_PATTERNS?.length || 0}`);
+    console.log(`Subject patterns: ${CONFIG.DROPBOX_SIGN_INTEGRATION.SUBJECT_PATTERNS?.length || 0}`);
+    console.log(`Reply-to patterns: ${CONFIG.DROPBOX_SIGN_INTEGRATION.REPLY_TO_PATTERNS?.length || 0}`);
+    console.log(`Detection mode: ${CONFIG.DROPBOX_SIGN_INTEGRATION.DETECTION_MODE || 'sender_or_subject'}`);
+    console.log(`PDF attachment required: ${CONFIG.DROPBOX_SIGN_INTEGRATION.REQUIRE_PDF_ATTACHMENT ? 'YES' : 'NO'}`);
+    
+    // Build Dropbox Sign search query (same as in processEmails)
+    const dropboxSignSearchTerms = [];
+    
+    // Add sender-based searches
+    if (CONFIG.DROPBOX_SIGN_INTEGRATION.SENDER_PATTERNS?.length > 0) {
+      dropboxSignSearchTerms.push('"via Dropbox Sign"');
+      dropboxSignSearchTerms.push('"via HelloSign"');
+      dropboxSignSearchTerms.push("'Dropbox Sign' via");
+      dropboxSignSearchTerms.push("'HelloSign' via");
+    }
+    
+    // Add reply-to based searches
+    if (CONFIG.DROPBOX_SIGN_INTEGRATION.REPLY_TO_PATTERNS?.length > 0) {
+      dropboxSignSearchTerms.push('from:hellosign.com');
+    }
+    
+    // Add subject-based searches
+    if (CONFIG.DROPBOX_SIGN_INTEGRATION.SUBJECT_PATTERNS?.length > 0) {
+      dropboxSignSearchTerms.push('subject:"You\'ve been copied on"');
+      dropboxSignSearchTerms.push('subject:"signed by"');
+      dropboxSignSearchTerms.push('subject:"has been completed"');
+      dropboxSignSearchTerms.push('subject:"You just signed"');
+    }
+    
+    let query = `(${dropboxSignSearchTerms.join(' OR ')}) -label:${CONFIG.GMAIL_LABEL}`;
+    
+    console.log(`Gmail search query: ${query}`);
+    
+    const threads = GmailApp.search(query, 0, 10);
+    console.log(`Found ${threads.length} potential Dropbox Sign email threads`);
+    
+    if (threads.length === 0) {
+      console.log('No Dropbox Sign emails found. Possible reasons:');
+      console.log('1. No Dropbox Sign/HelloSign completion emails in your Gmail');
+      console.log('2. All emails already processed (have the Contract_Processed label)');
+      console.log('3. Sender/subject patterns do not match actual emails');
+      console.log('4. Detection mode requires both sender AND subject match');
+      
+      // Try broader search
+      const broadQuery = 'subject:"You\'ve been copied on" OR "via Dropbox Sign" OR "via HelloSign"';
+      const broadThreads = GmailApp.search(broadQuery, 0, 5);
+      console.log(`Broader search: ${broadThreads.length} results`);
+      
+      if (broadThreads.length > 0) {
+        console.log('Sample Dropbox Sign/HelloSign email details:');
+        broadThreads.slice(0, 3).forEach((thread, index) => {
+          const messages = thread.getMessages();
+          if (messages.length > 0) {
+            const message = messages[0];
+            console.log(`${index + 1}. From: ${message.getFrom()}`);
+            console.log(`   To: ${message.getTo()}`);
+            console.log(`   Subject: ${message.getSubject()}`);
+            console.log(`   Reply-To: ${message.getReplyTo()}`);
+          }
+        });
+      }
+      
+      return;
+    }
+    
+    // Test message source detection and pattern matching on Dropbox Sign emails
+    console.log('\nTesting message source detection and pattern matching:');
+    threads.slice(0, 5).forEach((thread, index) => {
+      const messages = thread.getMessages();
+      if (messages.length === 0) {
+        console.log(`\n--- Dropbox Sign Email ${index + 1} ---`);
+        console.log('No messages in thread');
+        return;
+      }
+      
+      const message = messages[0]; // Get first message in thread
+      const subject = message.getSubject();
+      const sender = message.getFrom();
+      const to = message.getTo();
+      const replyTo = message.getReplyTo();
+      
+      console.log(`\n--- Dropbox Sign Email ${index + 1} ---`);
+      console.log(`From: ${sender}`);
+      console.log(`To: ${to}`);
+      console.log(`Reply-To: ${replyTo}`);
+      console.log(`Subject: "${subject}"`);
+      
+      // Test message source detection
+      const messageSource = detectMessageSource(message);
+      console.log(`Source detection: ${messageSource.type}`);
+      console.log(`Details: ${JSON.stringify(messageSource.details)}`);
+      
+      // Test pattern matching
+      const patternResult = checkSubjectPattern(subject, messageSource.type);
+      console.log(`Pattern match: ${patternResult.isMatch ? '✅ MATCHES' : '❌ NO MATCH'}`);
+      
+      if (patternResult.isMatch && patternResult.matchedPattern) {
+        console.log(`Matched pattern: ${patternResult.matchedPattern}`);
+      }
+      
+      if (!patternResult.isMatch && patternResult.checkedPatterns) {
+        console.log(`Checked ${patternResult.checkedPatterns.length} patterns`);
+      }
+    });
+    
+    console.log('\n=== Dropbox Sign Debug Complete ===');
+    
+  } catch (error) {
+    console.error('Error debugging Dropbox Sign emails:', error);
     throw error;
   }
 }

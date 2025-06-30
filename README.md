@@ -6,9 +6,11 @@ A specialized Google Apps Script-based system designed for contract management w
 
 ### 📋 Contract Management Integration
 - 🏢 **Multi-Tool Support**: Works with Contract Tool 1, Contract Tool 2, Contract Tool 3, Contract Tool 4, Contract Tool 5, Contract Tool 6, Contract Tool 7, and more
+- 🆕 **Dropbox Sign/HelloSign Integration**: Advanced support for organizational email forwarding (e.g., "'Dropbox Sign' via organization@company.com")
 - 📧 **Smart Pattern Recognition**: Recognizes contract completion emails in multiple languages (English/Japanese)
 - 🔍 **Intelligent Classification**: Automatically categorizes contract types (Employment, NDA, Service Agreement, etc.)
 - 🏭 **Company Extraction**: Identifies contract parties and company names from email content
+- 🔗 **Reply-To Detection**: Enhanced verification using reply-to headers for better accuracy
 
 ### 📄 PDF Contract Processing
 - 📱 **Automatic PDF Detection**: Only processes emails containing PDF contract documents
@@ -452,6 +454,46 @@ BODY_PREVIEW_LENGTH: 7500,               // Maximum email content length
 SEND_DRIVE_FOLDER_NOTIFICATION: true,    // Send follow-up Drive folder links
 ```
 
+#### 🆕 Dropbox Sign/HelloSign Integration Settings
+```javascript
+// In src/main.js CONFIG object:
+DROPBOX_SIGN_INTEGRATION: {
+  ENABLE: true,                           // Enable Dropbox Sign organizational email detection
+  
+  // Sender patterns for organizational forwarding
+  SENDER_PATTERNS: [
+    /.*via Dropbox Sign.*/i,              // "Name via Dropbox Sign" in sender field
+    /.*via HelloSign.*/i,                 // "Name via HelloSign" in sender field (legacy)
+    /'Dropbox Sign' via .*/i,             // "'Dropbox Sign' via organization" format
+    /'HelloSign' via .*/i                 // "'HelloSign' via organization" format (legacy)
+  ],
+  
+  // Reply-to patterns for additional verification
+  REPLY_TO_PATTERNS: [
+    /.*@hellosign\.com$/i,                // Reply-to hellosign.com domain
+    /noreply@hellosign\.com$/i            // Specific noreply address
+  ],
+  
+  // Subject patterns for completion emails
+  SUBJECT_PATTERNS: [
+    /You've been copied on.*signed by/i,  // "You've been copied on X signed by Y"
+    /.*has been completed/i,              // Generic completion messages
+    /.*signature.*completed/i,            // "Signature completed" notifications
+    /.*agreement.*signed by.*and/i,       // Multi-signer agreement notifications
+    /^You just signed.*/i                 // "You just signed X" notifications
+  ],
+  
+  REQUIRE_PDF_ATTACHMENT: false,          // Dropbox Sign emails may not always have PDFs
+  DETECTION_MODE: 'sender_or_subject'     // Either sender OR subject OR reply-to must match
+}
+```
+
+**🎯 Example Detection Cases:**
+- ✅ `From: 'Dropbox Sign' via investment-team@company.com`
+- ✅ `Reply-To: Dropbox Sign <noreply@hellosign.com>`
+- ✅ `Subject: You've been copied on Agreement - signed by John Doe`
+- ✅ `From: Legal Team via HelloSign <legal@company.com>` (legacy support)
+
 #### Message-Level Duplicate Prevention
 The system now tracks individual messages instead of email threads:
 - ✅ **Same subject, new emails**: Processed correctly
@@ -783,14 +825,24 @@ debugHelloSignEmails();  // From: src/main.js
 // - Gmail search results  
 // - Subject pattern matching
 
-// 3. Manually test email processing
+// 🆕 3. Debug Dropbox Sign/HelloSign organizational forwarding
+debugDropboxSignEmails();  // From: src/main.js
+// This checks:
+// - Dropbox Sign integration settings
+// - "via" sender pattern detection
+// - Reply-to header verification
+// - Subject pattern matching for organizational emails
+
+// 4. Manually test email processing
 processEmails();  // From: src/main.js
 ```
 
 **Common Solutions**:
 - **Missing sender email**: Add the exact sender email to Script Properties (e.g., `SENDER_EMAIL_7 = noreply@mail.hellosign.com`)
+- **🆕 Organizational forwarding**: No sender email needed - Dropbox Sign integration handles "'Service' via organization" patterns automatically
 - **Pattern mismatch**: Check if email subjects match configured patterns
 - **Already processed**: Emails with `Contract_Processed` label are skipped
+- **🆕 Reply-to verification**: System checks reply-to headers (e.g., `noreply@hellosign.com`) for additional verification
 
 #### 🔧 **Script Properties Limit (50 Properties)**
 **Symptom**: "Your script has more than 50 properties" or property setting fails
@@ -1025,6 +1077,26 @@ Sending follow-up message for 2 saved PDFs...
 **License**: MIT License
 
 ## Recent Updates
+
+### 🆕 Version 2.7 - Dropbox Sign Organizational Email Forwarding Support
+- **Enhanced Dropbox Sign Integration**: Advanced detection for organizational email forwarding
+  - Detects emails with format: `'Dropbox Sign' via organization@company.com`
+  - Supports HelloSign legacy patterns: `'HelloSign' via organization@company.com`
+  - Reply-to header verification: `noreply@hellosign.com` detection
+  - No sender email configuration required - automatically detected via patterns
+- **Advanced Pattern Matching**: Multi-layered detection system
+  - Sender field pattern detection for "via" forwarding
+  - Reply-to header analysis for additional verification
+  - Subject pattern matching for contract completion notifications
+  - Flexible detection mode: sender OR subject OR reply-to matching
+- **Organizational Support**: Perfect for companies using email forwarding
+  - Handles contracts sent via company email addresses
+  - Maintains all original functionality (PDF processing, Slack notifications, tracking)
+  - Works with existing configuration - no additional setup required
+- **Enhanced Debugging**: New debugging functions for troubleshooting
+  - `debugDropboxSignEmails()` - dedicated Dropbox Sign email debugging
+  - Enhanced `showConfiguration()` with Dropbox Sign integration status
+  - Detailed logging for sender, reply-to, and subject pattern matching
 
 ### 🆕 Version 2.6 - Intelligent Skip Labels & Enhanced Docusign Support
 - **Smart Skip Labels**: Automatically adds `Contract_Skipped` label to non-matching emails

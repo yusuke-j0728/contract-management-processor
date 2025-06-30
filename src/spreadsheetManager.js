@@ -1583,6 +1583,12 @@ function extractContractTool(senderEmail) {
     if (email.includes('contracttool9')) return 'Contract Tool 9';
     if (email.includes('contracttool10')) return 'Contract Tool 10';
     
+    // Check for Dropbox Sign/HelloSign patterns in sender field
+    if (email.includes('via Dropbox Sign') || email.includes("'Dropbox Sign' via")) return 'Dropbox Sign';
+    if (email.includes('via HelloSign') || email.includes("'HelloSign' via")) return 'HelloSign';
+    if (email.includes('hellosign.com')) return 'HelloSign/Dropbox Sign';
+    if (email.includes('docusign')) return 'DocuSign';
+    
     // Extract domain for unknown tools
     const domain = email.split('@')[1];
     return domain ? domain.split('.')[0] : 'Unknown';
