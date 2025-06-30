@@ -315,6 +315,19 @@ If any step fails, check:
 2. Webhook URL is valid and starts with `https://hooks.slack.com/`
 3. Channel name is correct (can be with or without `#` prefix, e.g., `your-channel` or `#your-channel`)
 4. Email address is the exact sender you want to monitor
+5. **🆕 Spreadsheet verification**: Ensure `SPREADSHEET_ID` points to correct spreadsheet
+
+**🆕 Verifying Spreadsheet Configuration:**
+```javascript
+// Check which spreadsheet system is using
+showConfiguration();  // From: src/main.js - Shows spreadsheet URL
+
+// Debug specific message ID issues
+debugMessageIdSearch("your-message-id");  // From: src/main.js
+
+// Comprehensive consistency check
+verifyMessageIdConsistency("your-message-id");  // From: src/main.js
+```
 
 **🆕 Testing PDF Processing:**
 To test PDF attachment processing:
@@ -898,6 +911,45 @@ npm run push
 3. Check channel permissions
 ```
 
+#### 🔧 **Spreadsheet Logging Issues**
+**Symptom**: Logs show records found but not visible in spreadsheet
+
+**Root Cause**: Script Properties `SPREADSHEET_ID` points to different spreadsheet than expected
+
+**Debug Steps**:
+```javascript
+// 1. Check current spreadsheet configuration
+showConfiguration();  // From: src/main.js - Shows current spreadsheet URL
+
+// 2. Debug specific message ID
+debugMessageIdSearch("your-message-id");  // From: src/main.js
+// This shows:
+// - Which spreadsheet is being accessed
+// - Whether message ID exists in main or processed sheets
+// - Exact row and column locations
+
+// 3. Verify message ID consistency
+verifyMessageIdConsistency("your-message-id");  // From: src/main.js
+// Comprehensive check across all search functions
+
+// 4. Test with reported issue
+testUserReportedMessageId();  // From: src/main.js
+```
+
+**Common Solutions**:
+- **Wrong spreadsheet**: Update `SPREADSHEET_ID` in Script Properties to correct spreadsheet ID
+- **Missing data**: Check both tabs (`契約一覧_Contract_List` and `処理済みメッセージ_Processed_Messages`)
+- **Column mismatch**: Message ID should be in Column M (main sheet) and Column B (processed sheet)
+- **Filter applied**: Clear any filters in the spreadsheet view
+- **Scroll position**: Message ID is in Column M - scroll right to view
+
+**Verification**:
+```javascript
+// After fixing Script Properties, verify:
+showConfiguration();  // Should show correct spreadsheet URL
+debugMessageIdSearch("test-message-id");  // Should show consistent results
+```
+
 #### 🔧 **Attachments Not Saved**
 **Symptom**: Email notifications received but no files in Drive
 ```javascript
@@ -1077,6 +1129,26 @@ Sending follow-up message for 2 saved PDFs...
 **License**: MIT License
 
 ## Recent Updates
+
+### 🆕 Version 2.8 - Enhanced Debugging & Spreadsheet Verification
+- **🔍 Advanced Debugging Functions**: Comprehensive troubleshooting tools for spreadsheet logging issues
+  - `debugMessageIdSearch(messageId)` - Search for specific message IDs across all spreadsheet tabs
+  - `verifyMessageIdConsistency(messageId)` - Comprehensive consistency verification between search functions
+  - `testUserReportedMessageId()` - Pre-configured test for reported message ID issues
+  - `searchPartialMessageId(partialId)` - Find partial message ID matches
+- **📄 Spreadsheet Verification**: Solve "found in logs but not in spreadsheet" issues
+  - Detects Script Properties `SPREADSHEET_ID` mismatches
+  - Shows actual spreadsheet URLs being accessed by the system
+  - Verifies data consistency between main contract sheet and processed messages sheet
+  - Manual verification in both spreadsheet tabs with detailed location reporting
+- **🔧 Configuration Validation**: Enhanced configuration checking
+  - `showConfiguration()` now displays actual spreadsheet URLs
+  - Verifies which spreadsheet is being used by the system vs user expectations
+  - Clear guidance for Script Properties corrections
+- **📊 Troubleshooting Guide**: Updated documentation with spreadsheet logging solutions
+  - Step-by-step debugging process for message ID discrepancies
+  - Common causes and solutions for spreadsheet synchronization issues
+  - Verification steps after Script Properties corrections
 
 ### 🆕 Version 2.7 - Dropbox Sign Organizational Email Forwarding Support
 - **Enhanced Dropbox Sign Integration**: Advanced detection for organizational email forwarding
