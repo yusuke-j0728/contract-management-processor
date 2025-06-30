@@ -75,10 +75,11 @@ const CONFIG = {
       /.*捺印済.*合意締結/,
       
       // Contract Tool 7 patterns
-      /You've been copied on.*signed by/i,
+      /.*You've been copied on.*signed by/i,
       /.*has been completed/i,
       /.*signature.*completed/i,
       /.*agreement.*signed by.*and/i,
+      /.*You just signed.*/i,
       
       // Generic contract patterns
       /contract.*pdf/i,
@@ -121,6 +122,42 @@ const CONFIG = {
     
     // Additional verification requirements
     REQUIRE_PDF_ATTACHMENT: true,             // Only process emails with PDF attachments
+    
+    // Detection mode: 'sender_or_subject' (either match), 'sender_and_subject' (both required)
+    DETECTION_MODE: 'sender_or_subject'
+  },
+  
+  // Dropbox Sign/HelloSign integration settings for organizational email forwarding
+  // Handles emails sent via organizational email addresses but originating from Dropbox Sign
+  DROPBOX_SIGN_INTEGRATION: {
+    ENABLE: true,  // Enable Dropbox Sign/HelloSign email detection
+    
+    // Sender patterns for Dropbox Sign emails (including organizational forwarding)
+    SENDER_PATTERNS: [
+      /.*via Dropbox Sign.*/i,         // "Name via Dropbox Sign" in sender field
+      /.*via HelloSign.*/i,            // "Name via HelloSign" in sender field (legacy)
+      /'Dropbox Sign' via .*/i,        // "'Dropbox Sign' via organization" format
+      /'HelloSign' via .*/i            // "'HelloSign' via organization" format (legacy)
+    ],
+    
+    // Reply-to patterns for additional verification
+    REPLY_TO_PATTERNS: [
+      /.*@hellosign\.com$/i,           // Reply-to hellosign.com domain
+      /noreply@hellosign\.com$/i       // Specific noreply address
+    ],
+    
+    // Subject patterns for Dropbox Sign/HelloSign completion emails
+    SUBJECT_PATTERNS: [
+      /You've been copied on.*signed by/i,     // "You've been copied on X signed by Y"
+      /.*has been completed/i,                 // Generic completion messages
+      /.*signature.*completed/i,               // "Signature completed" notifications
+      /.*agreement.*signed by.*and/i,          // Multi-signer agreement notifications
+      /^You just signed.*/i,                   // "You just signed X" notifications
+      /.*document.*signed/i                    // Document signing completion
+    ],
+    
+    // Additional verification requirements
+    REQUIRE_PDF_ATTACHMENT: false,            // Dropbox Sign emails may not always have PDF attachments
     
     // Detection mode: 'sender_or_subject' (either match), 'sender_and_subject' (both required)
     DETECTION_MODE: 'sender_or_subject'
@@ -219,6 +256,38 @@ function processEmails() {
         const docusignQuery = `(${docusignSearchTerms.join(' OR ')})`;
         searchQueries.push(docusignQuery);
         console.log(`Docusign detection enabled with ${docusignSearchTerms.length} search terms`);
+      }
+    }
+    
+    if (CONFIG.DROPBOX_SIGN_INTEGRATION?.ENABLE) {
+      // Build flexible Dropbox Sign search query with sender and subject patterns
+      const dropboxSignSearchTerms = [];
+      
+      // Add sender-based searches
+      if (CONFIG.DROPBOX_SIGN_INTEGRATION.SENDER_PATTERNS?.length > 0) {
+        dropboxSignSearchTerms.push('"via Dropbox Sign"');     // "Name via Dropbox Sign" pattern
+        dropboxSignSearchTerms.push('"via HelloSign"');        // Legacy HelloSign pattern
+        dropboxSignSearchTerms.push("'Dropbox Sign' via");     // "'Dropbox Sign' via organization" pattern
+        dropboxSignSearchTerms.push("'HelloSign' via");        // "'HelloSign' via organization" pattern
+      }
+      
+      // Add reply-to based searches for better detection
+      if (CONFIG.DROPBOX_SIGN_INTEGRATION.REPLY_TO_PATTERNS?.length > 0) {
+        dropboxSignSearchTerms.push('from:hellosign.com');     // Reply-to domain search
+      }
+      
+      // Add subject-based searches
+      if (CONFIG.DROPBOX_SIGN_INTEGRATION.SUBJECT_PATTERNS?.length > 0) {
+        dropboxSignSearchTerms.push('subject:"You\'ve been copied on"');
+        dropboxSignSearchTerms.push('subject:"signed by"');
+        dropboxSignSearchTerms.push('subject:"has been completed"');
+        dropboxSignSearchTerms.push('subject:"You just signed"');
+      }
+      
+      if (dropboxSignSearchTerms.length > 0) {
+        const dropboxSignQuery = `(${dropboxSignSearchTerms.join(' OR ')})`;
+        searchQueries.push(dropboxSignQuery);
+        console.log(`Dropbox Sign detection enabled with ${dropboxSignSearchTerms.length} search terms`);
       }
     }
     
@@ -684,6 +753,18 @@ function showConfiguration() {
       console.log(`  Processing: All Docusign emails (no recipient filtering)`);
     }
     
+    // Dropbox Sign integration settings
+    console.log(`\nDropbox Sign Integration:`);
+    console.log(`  Dropbox Sign detection: ${CONFIG.DROPBOX_SIGN_INTEGRATION?.ENABLE ? 'ENABLED' : 'DISABLED'}`);
+    if (CONFIG.DROPBOX_SIGN_INTEGRATION?.ENABLE) {
+      console.log(`  Sender patterns: ${CONFIG.DROPBOX_SIGN_INTEGRATION.SENDER_PATTERNS?.length || 0}`);
+      console.log(`  Subject patterns: ${CONFIG.DROPBOX_SIGN_INTEGRATION.SUBJECT_PATTERNS?.length || 0}`);
+      console.log(`  Reply-to patterns: ${CONFIG.DROPBOX_SIGN_INTEGRATION.REPLY_TO_PATTERNS?.length || 0}`);
+      console.log(`  Detection mode: ${CONFIG.DROPBOX_SIGN_INTEGRATION.DETECTION_MODE || 'sender_or_subject'}`);
+      console.log(`  PDF attachment required: ${CONFIG.DROPBOX_SIGN_INTEGRATION.REQUIRE_PDF_ATTACHMENT ? 'YES' : 'NO'}`);
+      console.log(`  Processing: All Dropbox Sign emails via organizational forwarding`);
+    }
+    
     // Processing settings
     console.log(`\nProcessing Settings:`);
     console.log(`  Max emails per run: ${CONFIG.MAX_EMAILS_PER_RUN}`);
@@ -754,11 +835,11 @@ function getConfiguredSenderEmails() {
 }
 
 /**
- * Detect message source type (sender-based or Docusign)
- * メッセージのソースタイプを検出（送信者ベースまたはDocusign）
+ * Detect message source type (sender-based, Docusign, or Dropbox Sign)
+ * メッセージのソースタイプを検出（送信者ベース、Docusign、またはDropbox Sign）
  * 
  * @param {GmailMessage} message - Gmail message object
- * @returns {Object} - {type: 'SENDER_BASED'|'DOCUSIGN', details: {...}}
+ * @returns {Object} - {type: 'SENDER_BASED'|'DOCUSIGN'|'DROPBOX_SIGN', details: {...}}
  */
 function detectMessageSource(message) {
   try {
@@ -766,6 +847,18 @@ function detectMessageSource(message) {
     const subject = message.getSubject();
     const to = message.getTo();
     const attachments = message.getAttachments();
+    
+    // Get reply-to header for additional verification
+    let replyTo = '';
+    try {
+      const rawMessage = message.getRawContent();
+      const replyToMatch = rawMessage.match(/Reply-To: (.+)/i);
+      if (replyToMatch) {
+        replyTo = replyToMatch[1].trim();
+      }
+    } catch (error) {
+      console.log('Could not extract reply-to header, continuing without it');
+    }
     
     // Check if it's from a configured sender email (traditional contract tools)
     const configuredEmails = getConfiguredSenderEmails();
@@ -849,11 +942,85 @@ function detectMessageSource(message) {
       }
     }
     
+    // Check if it's a Dropbox Sign/HelloSign email (flexible sender and subject detection)
+    if (CONFIG.DROPBOX_SIGN_INTEGRATION?.ENABLE) {
+      const senderPatterns = CONFIG.DROPBOX_SIGN_INTEGRATION.SENDER_PATTERNS || [];
+      const subjectPatterns = CONFIG.DROPBOX_SIGN_INTEGRATION.SUBJECT_PATTERNS || [];
+      const replyToPatterns = CONFIG.DROPBOX_SIGN_INTEGRATION.REPLY_TO_PATTERNS || [];
+      const detectionMode = CONFIG.DROPBOX_SIGN_INTEGRATION.DETECTION_MODE || 'sender_or_subject';
+      
+      // Test sender patterns
+      const senderMatch = senderPatterns.some(pattern => pattern.test(sender));
+      
+      // Test subject patterns
+      const subjectMatch = subjectPatterns.some(pattern => pattern.test(subject));
+      
+      // Test reply-to patterns for additional verification
+      const replyToMatch = replyTo && replyToPatterns.some(pattern => pattern.test(replyTo));
+      
+      let isDropboxSign = false;
+      let detectedBy = [];
+      
+      if (detectionMode === 'sender_or_subject') {
+        // Either sender, subject, or reply-to must match
+        isDropboxSign = senderMatch || subjectMatch || replyToMatch;
+      } else if (detectionMode === 'sender_and_subject') {
+        // Both sender AND subject must match (reply-to is additional)
+        isDropboxSign = senderMatch && subjectMatch;
+      }
+      
+      if (senderMatch) detectedBy.push('sender_pattern');
+      if (subjectMatch) detectedBy.push('subject_pattern');
+      if (replyToMatch) detectedBy.push('reply_to_pattern');
+      
+      if (isDropboxSign) {
+        // Additional verification: check for PDF attachment if required
+        if (CONFIG.DROPBOX_SIGN_INTEGRATION.REQUIRE_PDF_ATTACHMENT) {
+          const hasPdfAttachment = attachments.some(attachment => 
+            attachment.getName().toLowerCase().endsWith('.pdf')
+          );
+          
+          if (!hasPdfAttachment) {
+            return {
+              type: 'FILTERED_OUT',
+              details: {
+                reason: 'Dropbox Sign email detected but no PDF attachment found (PDF required)',
+                senderMatch: senderMatch,
+                subjectMatch: subjectMatch,
+                replyToMatch: replyToMatch,
+                attachmentCount: attachments.length,
+                detectedBy: detectedBy.join(', ')
+              }
+            };
+          }
+          
+          detectedBy.push('pdf_attachment_verified');
+        }
+        
+        return {
+          type: 'DROPBOX_SIGN',
+          details: {
+            detectedBy: detectedBy.join(', '),
+            senderMatch: senderMatch,
+            subjectMatch: subjectMatch,
+            replyToMatch: replyToMatch,
+            detectionMode: detectionMode,
+            hasPdfAttachment: CONFIG.DROPBOX_SIGN_INTEGRATION.REQUIRE_PDF_ATTACHMENT ? 
+              attachments.some(att => att.getName().toLowerCase().endsWith('.pdf')) : 'not_checked',
+            attachmentCount: attachments.length,
+            recipient: to,
+            replyTo: replyTo
+          }
+        };
+      }
+    }
+    
     return {
       type: 'UNKNOWN',
       details: {
         sender: sender,
-        subject: subject
+        subject: subject,
+        replyTo: replyTo
       }
     };
     
@@ -1214,6 +1381,567 @@ function debugDocusignEmails() {
 }
 
 /**
+ * Debug specific message ID search in spreadsheet
+ * スプレッドシートでの特定メッセージID検索のデバッグ
+ * 
+ * @param {string} messageId - The message ID to search for
+ */
+function debugMessageIdSearch(messageId) {
+  console.log(`=== DEBUGGING MESSAGE ID SEARCH: ${messageId} ===`);
+  
+  try {
+    const spreadsheetId = getProperty('SPREADSHEET_ID', false);
+    if (!spreadsheetId) {
+      console.log('❌ No spreadsheet ID configured');
+      return;
+    }
+    
+    console.log(`📊 Spreadsheet ID: ${spreadsheetId}`);
+    
+    const spreadsheet = SpreadsheetApp.openById(spreadsheetId);
+    console.log(`📋 Spreadsheet Name: ${spreadsheet.getName()}`);
+    console.log(`🔗 Spreadsheet URL: ${spreadsheet.getUrl()}`);
+    
+    // Check main contract tracking sheet
+    console.log('\n🔍 Checking Main Contract Tracking Sheet...');
+    const mainSheet = spreadsheet.getSheetByName(SPREADSHEET_CONFIG.TAB_NAME);
+    if (mainSheet) {
+      console.log(`✓ Main sheet found: ${SPREADSHEET_CONFIG.TAB_NAME}`);
+      const lastRow = mainSheet.getLastRow();
+      console.log(`📊 Total rows: ${lastRow} (${lastRow - 1} data rows)`);
+      
+      if (lastRow > 1) {
+        const dataRange = mainSheet.getRange(2, 1, lastRow - 1, mainSheet.getLastColumn());
+        const values = dataRange.getValues();
+        
+        console.log(`🔍 Searching ${values.length} rows for message ID: ${messageId}`);
+        
+        let found = false;
+        for (let i = 0; i < values.length; i++) {
+          const row = values[i];
+          const rowMessageId = row[12]; // Column M (index 12) is Message ID
+          
+          if (rowMessageId === messageId) {
+            found = true;
+            console.log(`✅ FOUND in main sheet at row ${i + 2}:`);
+            console.log(`   Date: ${row[0]}`);
+            console.log(`   Tool: ${row[1]}`);
+            console.log(`   Sender: ${row[2]}`);
+            console.log(`   Recipient: ${row[3]}`);
+            console.log(`   Subject: ${row[4]}`);
+            console.log(`   Status: ${row[9]}`);
+            console.log(`   Message ID: ${row[12]}`);
+            break;
+          }
+        }
+        
+        if (!found) {
+          console.log(`❌ Message ID NOT FOUND in main sheet`);
+          
+          // Show sample message IDs for comparison
+          console.log('\n📋 Sample message IDs from main sheet (first 5 rows):');
+          for (let i = 0; i < Math.min(5, values.length); i++) {
+            const rowMessageId = values[i][12];
+            console.log(`   Row ${i + 2}: "${rowMessageId}"`);
+          }
+        }
+      } else {
+        console.log('📋 Main sheet is empty (only header row)');
+      }
+    } else {
+      console.log(`❌ Main sheet not found: ${SPREADSHEET_CONFIG.TAB_NAME}`);
+    }
+    
+    // Check processed messages sheet
+    console.log('\n🔍 Checking Processed Messages Sheet...');
+    const processedSheet = spreadsheet.getSheetByName(SPREADSHEET_CONFIG.PROCESSED_TAB_NAME);
+    if (processedSheet) {
+      console.log(`✓ Processed sheet found: ${SPREADSHEET_CONFIG.PROCESSED_TAB_NAME}`);
+      const lastRow = processedSheet.getLastRow();
+      console.log(`📊 Total rows: ${lastRow} (${lastRow - 1} data rows)`);
+      
+      if (lastRow > 1) {
+        const dataRange = processedSheet.getRange(2, 1, lastRow - 1, processedSheet.getLastColumn());
+        const values = dataRange.getValues();
+        
+        console.log(`🔍 Searching ${values.length} rows for message ID: ${messageId}`);
+        
+        let found = false;
+        for (let i = 0; i < values.length; i++) {
+          const row = values[i];
+          const rowMessageId = row[1]; // Column B (index 1) is Message ID in processed sheet
+          
+          if (rowMessageId === messageId) {
+            found = true;
+            console.log(`✅ FOUND in processed sheet at row ${i + 2}:`);
+            console.log(`   Processing Date: ${row[0]}`);
+            console.log(`   Message ID: ${row[1]}`);
+            console.log(`   Content Key: ${row[2]}`);
+            console.log(`   Subject: ${row[3]}`);
+            console.log(`   Sender: ${row[4]}`);
+            console.log(`   Status: ${row[5]}`);
+            break;
+          }
+        }
+        
+        if (!found) {
+          console.log(`❌ Message ID NOT FOUND in processed sheet`);
+          
+          // Show sample message IDs for comparison
+          console.log('\n📋 Sample message IDs from processed sheet (first 5 rows):');
+          for (let i = 0; i < Math.min(5, values.length); i++) {
+            const rowMessageId = values[i][1];
+            console.log(`   Row ${i + 2}: "${rowMessageId}"`);
+          }
+        }
+      } else {
+        console.log('📋 Processed sheet is empty (only header row)');
+      }
+    } else {
+      console.log(`❌ Processed sheet not found: ${SPREADSHEET_CONFIG.PROCESSED_TAB_NAME}`);
+    }
+    
+    // Test the search function itself
+    console.log('\n🧪 Testing searchRecordByMessageId() function...');
+    const searchResult = searchRecordByMessageId(messageId);
+    if (searchResult) {
+      console.log(`✅ searchRecordByMessageId() returned result:`);
+      console.log(`   Row: ${searchResult.row}`);
+      console.log(`   Subject: ${searchResult.subject}`);
+      console.log(`   Status: ${searchResult.status}`);
+      console.log(`   Message ID: ${searchResult.messageId}`);
+    } else {
+      console.log(`❌ searchRecordByMessageId() returned null`);
+    }
+    
+    // Test the processed message check function
+    console.log('\n🧪 Testing isMessageProcessedInSpreadsheet() function...');
+    const isProcessed = isMessageProcessedInSpreadsheet(messageId);
+    console.log(`   Result: ${isProcessed ? 'TRUE (already processed)' : 'FALSE (not processed)'}`);
+    
+    console.log('\n=== DEBUG COMPLETE ===');
+    
+  } catch (error) {
+    console.error('Error debugging message ID search:', error);
+    console.error('Error details:', error.stack);
+  }
+}
+
+/**
+ * Search for partial message ID matches in spreadsheet
+ * スプレッドシートで部分的なメッセージIDマッチを検索
+ * 
+ * @param {string} partialMessageId - Partial message ID to search for
+ */
+function searchPartialMessageId(partialMessageId) {
+  console.log(`=== SEARCHING FOR PARTIAL MESSAGE ID: ${partialMessageId} ===`);
+  
+  try {
+    const spreadsheetId = getProperty('SPREADSHEET_ID', false);
+    if (!spreadsheetId) {
+      console.log('❌ No spreadsheet ID configured');
+      return;
+    }
+    
+    const spreadsheet = SpreadsheetApp.openById(spreadsheetId);
+    
+    // Search in main sheet
+    console.log('\n🔍 Searching Main Contract Tracking Sheet...');
+    const mainSheet = spreadsheet.getSheetByName(SPREADSHEET_CONFIG.TAB_NAME);
+    if (mainSheet && mainSheet.getLastRow() > 1) {
+      const dataRange = mainSheet.getRange(2, 1, mainSheet.getLastRow() - 1, mainSheet.getLastColumn());
+      const values = dataRange.getValues();
+      
+      console.log(`🔍 Searching ${values.length} rows for partial match: ${partialMessageId}`);
+      
+      let matches = [];
+      for (let i = 0; i < values.length; i++) {
+        const row = values[i];
+        const rowMessageId = row[12]; // Column M (index 12) is Message ID
+        
+        if (rowMessageId && rowMessageId.includes(partialMessageId)) {
+          matches.push({
+            row: i + 2,
+            messageId: rowMessageId,
+            subject: row[4],
+            date: row[0],
+            status: row[9]
+          });
+        }
+      }
+      
+      if (matches.length > 0) {
+        console.log(`✅ Found ${matches.length} partial matches in main sheet:`);
+        matches.forEach(match => {
+          console.log(`   Row ${match.row}: ${match.messageId}`);
+          console.log(`     Subject: ${match.subject}`);
+          console.log(`     Date: ${match.date}`);
+          console.log(`     Status: ${match.status}`);
+        });
+      } else {
+        console.log(`❌ No partial matches found in main sheet`);
+      }
+    }
+    
+    // Search in processed sheet
+    console.log('\n🔍 Searching Processed Messages Sheet...');
+    const processedSheet = spreadsheet.getSheetByName(SPREADSHEET_CONFIG.PROCESSED_TAB_NAME);
+    if (processedSheet && processedSheet.getLastRow() > 1) {
+      const dataRange = processedSheet.getRange(2, 1, processedSheet.getLastRow() - 1, processedSheet.getLastColumn());
+      const values = dataRange.getValues();
+      
+      let matches = [];
+      for (let i = 0; i < values.length; i++) {
+        const row = values[i];
+        const rowMessageId = row[1]; // Column B (index 1) is Message ID in processed sheet
+        
+        if (rowMessageId && rowMessageId.includes(partialMessageId)) {
+          matches.push({
+            row: i + 2,
+            messageId: rowMessageId,
+            subject: row[3],
+            date: row[0],
+            status: row[5]
+          });
+        }
+      }
+      
+      if (matches.length > 0) {
+        console.log(`✅ Found ${matches.length} partial matches in processed sheet:`);
+        matches.forEach(match => {
+          console.log(`   Row ${match.row}: ${match.messageId}`);
+          console.log(`     Subject: ${match.subject}`);
+          console.log(`     Date: ${match.date}`);
+          console.log(`     Status: ${match.status}`);
+        });
+      } else {
+        console.log(`❌ No partial matches found in processed sheet`);
+      }
+    }
+    
+    console.log('\n=== PARTIAL SEARCH COMPLETE ===');
+    
+  } catch (error) {
+    console.error('Error searching for partial message ID:', error);
+  }
+}
+
+/**
+ * Debug Dropbox Sign email processing specifically
+ * Dropbox Signメール処理の専用デバッグ
+ */
+function debugDropboxSignEmails() {
+  console.log('=== DEBUGGING DROPBOX SIGN EMAIL PROCESSING ===');
+  
+  try {
+    // Check if Dropbox Sign integration is enabled
+    if (!CONFIG.DROPBOX_SIGN_INTEGRATION?.ENABLE) {
+      console.log('❌ Dropbox Sign integration is disabled in configuration');
+      console.log('Enable by setting CONFIG.DROPBOX_SIGN_INTEGRATION.ENABLE = true');
+      return;
+    }
+    
+    console.log('✓ Dropbox Sign integration enabled');
+    console.log(`Sender patterns: ${CONFIG.DROPBOX_SIGN_INTEGRATION.SENDER_PATTERNS?.length || 0}`);
+    console.log(`Subject patterns: ${CONFIG.DROPBOX_SIGN_INTEGRATION.SUBJECT_PATTERNS?.length || 0}`);
+    console.log(`Reply-to patterns: ${CONFIG.DROPBOX_SIGN_INTEGRATION.REPLY_TO_PATTERNS?.length || 0}`);
+    console.log(`Detection mode: ${CONFIG.DROPBOX_SIGN_INTEGRATION.DETECTION_MODE || 'sender_or_subject'}`);
+    console.log(`PDF attachment required: ${CONFIG.DROPBOX_SIGN_INTEGRATION.REQUIRE_PDF_ATTACHMENT ? 'YES' : 'NO'}`);
+    
+    // Build Dropbox Sign search query (same as in processEmails)
+    const dropboxSignSearchTerms = [];
+    
+    // Add sender-based searches
+    if (CONFIG.DROPBOX_SIGN_INTEGRATION.SENDER_PATTERNS?.length > 0) {
+      dropboxSignSearchTerms.push('"via Dropbox Sign"');
+      dropboxSignSearchTerms.push('"via HelloSign"');
+      dropboxSignSearchTerms.push("'Dropbox Sign' via");
+      dropboxSignSearchTerms.push("'HelloSign' via");
+    }
+    
+    // Add reply-to based searches
+    if (CONFIG.DROPBOX_SIGN_INTEGRATION.REPLY_TO_PATTERNS?.length > 0) {
+      dropboxSignSearchTerms.push('from:hellosign.com');
+    }
+    
+    // Add subject-based searches
+    if (CONFIG.DROPBOX_SIGN_INTEGRATION.SUBJECT_PATTERNS?.length > 0) {
+      dropboxSignSearchTerms.push('subject:"You\'ve been copied on"');
+      dropboxSignSearchTerms.push('subject:"signed by"');
+      dropboxSignSearchTerms.push('subject:"has been completed"');
+      dropboxSignSearchTerms.push('subject:"You just signed"');
+    }
+    
+    let query = `(${dropboxSignSearchTerms.join(' OR ')}) -label:${CONFIG.GMAIL_LABEL}`;
+    
+    console.log(`Gmail search query: ${query}`);
+    
+    const threads = GmailApp.search(query, 0, 10);
+    console.log(`Found ${threads.length} potential Dropbox Sign email threads`);
+    
+    if (threads.length === 0) {
+      console.log('No Dropbox Sign emails found. Possible reasons:');
+      console.log('1. No Dropbox Sign/HelloSign completion emails in your Gmail');
+      console.log('2. All emails already processed (have the Contract_Processed label)');
+      console.log('3. Sender/subject patterns do not match actual emails');
+      console.log('4. Detection mode requires both sender AND subject match');
+      
+      // Try broader search
+      const broadQuery = 'subject:"You\'ve been copied on" OR "via Dropbox Sign" OR "via HelloSign"';
+      const broadThreads = GmailApp.search(broadQuery, 0, 5);
+      console.log(`Broader search: ${broadThreads.length} results`);
+      
+      if (broadThreads.length > 0) {
+        console.log('Sample Dropbox Sign/HelloSign email details:');
+        broadThreads.slice(0, 3).forEach((thread, index) => {
+          const messages = thread.getMessages();
+          if (messages.length > 0) {
+            const message = messages[0];
+            console.log(`${index + 1}. From: ${message.getFrom()}`);
+            console.log(`   To: ${message.getTo()}`);
+            console.log(`   Subject: ${message.getSubject()}`);
+            console.log(`   Reply-To: ${message.getReplyTo()}`);
+          }
+        });
+      }
+      
+      return;
+    }
+    
+    // Test message source detection and pattern matching on Dropbox Sign emails
+    console.log('\nTesting message source detection and pattern matching:');
+    threads.slice(0, 5).forEach((thread, index) => {
+      const messages = thread.getMessages();
+      if (messages.length === 0) {
+        console.log(`\n--- Dropbox Sign Email ${index + 1} ---`);
+        console.log('No messages in thread');
+        return;
+      }
+      
+      const message = messages[0]; // Get first message in thread
+      const subject = message.getSubject();
+      const sender = message.getFrom();
+      const to = message.getTo();
+      const replyTo = message.getReplyTo();
+      
+      console.log(`\n--- Dropbox Sign Email ${index + 1} ---`);
+      console.log(`From: ${sender}`);
+      console.log(`To: ${to}`);
+      console.log(`Reply-To: ${replyTo}`);
+      console.log(`Subject: "${subject}"`);
+      
+      // Test message source detection
+      const messageSource = detectMessageSource(message);
+      console.log(`Source detection: ${messageSource.type}`);
+      console.log(`Details: ${JSON.stringify(messageSource.details)}`);
+      
+      // Test pattern matching
+      const patternResult = checkSubjectPattern(subject, messageSource.type);
+      console.log(`Pattern match: ${patternResult.isMatch ? '✅ MATCHES' : '❌ NO MATCH'}`);
+      
+      if (patternResult.isMatch && patternResult.matchedPattern) {
+        console.log(`Matched pattern: ${patternResult.matchedPattern}`);
+      }
+      
+      if (!patternResult.isMatch && patternResult.checkedPatterns) {
+        console.log(`Checked ${patternResult.checkedPatterns.length} patterns`);
+      }
+    });
+    
+    console.log('\n=== Dropbox Sign Debug Complete ===');
+    
+  } catch (error) {
+    console.error('Error debugging Dropbox Sign emails:', error);
+    throw error;
+  }
+}
+
+/**
+ * Test Dropbox Sign email processing with spreadsheet logging
+ * Dropbox Signメール処理とスプレッドシートロギングのテスト
+ */
+function testDropboxSignSpreadsheetLogging() {
+  console.log('=== TESTING DROPBOX SIGN SPREADSHEET LOGGING ===');
+  
+  try {
+    // Check if spreadsheet logging is enabled
+    console.log(`Spreadsheet logging enabled: ${CONFIG.ENABLE_SPREADSHEET_LOGGING}`);
+    
+    if (!CONFIG.ENABLE_SPREADSHEET_LOGGING) {
+      console.log('❌ Spreadsheet logging is disabled');
+      console.log('Enable by setting CONFIG.ENABLE_SPREADSHEET_LOGGING = true in main.js');
+      return;
+    }
+    
+    // Check if spreadsheet exists
+    const spreadsheetId = getProperty('SPREADSHEET_ID', false);
+    console.log(`Spreadsheet ID: ${spreadsheetId || 'NOT SET'}`);
+    
+    if (!spreadsheetId) {
+      console.log('Creating spreadsheet...');
+      const newSpreadsheetId = createOrGetSpreadsheet();
+      console.log(`New spreadsheet created: ${newSpreadsheetId}`);
+    }
+    
+    // Test with mock Dropbox Sign email data
+    const mockDropboxSignData = {
+      date: new Date(),
+      sender: "'Dropbox Sign' via investment-abkk <investment-abkk@animocabrands.com>",
+      recipient: 'investment-abkk@animocabrands.com',
+      subject: "You've been copied on Shareholder Resolution - Approval of Fundraising - Convertible Notes and Warrants Issuance (ABKK) - signed by Yusuke Jindo",
+      body: 'This is a test email body for Dropbox Sign organizational forwarding. The document has been completed and signed.',
+      messageId: `dropbox-sign-test-${new Date().getTime()}`,
+      attachmentCount: 1,
+      pdfCount: 1,
+      pdfFilename: 'Shareholder_Resolution_ABKK.pdf',
+      pdfDirectLinks: 'https://drive.google.com/file/d/1TEST_DROPBOX_SIGN/view',
+      status: 'Success',
+      slackNotified: true,
+      error: null
+    };
+    
+    console.log('\n📝 Testing spreadsheet record addition:');
+    console.log(`Message ID: ${mockDropboxSignData.messageId}`);
+    console.log(`Sender: ${mockDropboxSignData.sender}`);
+    console.log(`Subject: ${mockDropboxSignData.subject}`);
+    
+    // Test contract tool extraction
+    const contractTool = extractContractTool(mockDropboxSignData.sender);
+    console.log(`Extracted contract tool: ${contractTool}`);
+    
+    // Test contract type extraction
+    const contractType = extractContractType(mockDropboxSignData.subject, mockDropboxSignData.body);
+    console.log(`Extracted contract type: ${contractType}`);
+    
+    // Test contract party extraction
+    const contractParty = extractContractParty(mockDropboxSignData.subject, mockDropboxSignData.body);
+    console.log(`Extracted contract party: ${contractParty}`);
+    
+    // Add record to spreadsheet
+    console.log('\n📊 Adding record to spreadsheet...');
+    const addResult = addEmailRecord(mockDropboxSignData);
+    
+    if (addResult) {
+      console.log('✅ Record added successfully to spreadsheet');
+      
+      // Search for the record
+      console.log('\n🔍 Searching for the added record...');
+      const searchResult = searchRecordByMessageId(mockDropboxSignData.messageId);
+      
+      if (searchResult) {
+        console.log('✅ Record found in spreadsheet:');
+        console.log(`  - Row: ${searchResult.row}`);
+        console.log(`  - Status: ${searchResult.status}`);
+        console.log(`  - Contract Tool: ${extractContractTool(searchResult.sender)}`);
+      } else {
+        console.log('❌ Record not found in spreadsheet');
+      }
+      
+    } else {
+      console.log('❌ Failed to add record to spreadsheet');
+    }
+    
+    // Get spreadsheet URL for manual verification
+    if (spreadsheetId) {
+      const spreadsheet = SpreadsheetApp.openById(spreadsheetId);
+      console.log(`\n🔗 Spreadsheet URL: ${spreadsheet.getUrl()}`);
+      console.log('Check the spreadsheet manually to verify the Dropbox Sign entry');
+    }
+    
+    console.log('\n=== Dropbox Sign Spreadsheet Test Complete ===');
+    
+  } catch (error) {
+    console.error('❌ Error testing Dropbox Sign spreadsheet logging:', error);
+    console.error('Error details:', error.stack);
+    throw error;
+  }
+}
+
+/**
+ * Debug specific Dropbox Sign email processing workflow
+ * 特定のDropbox Signメール処理ワークフローのデバッグ
+ */
+function debugDropboxSignWorkflow() {
+  console.log('=== DEBUGGING DROPBOX SIGN PROCESSING WORKFLOW ===');
+  
+  try {
+    // Step 1: Check configuration
+    console.log('Step 1: Checking configuration...');
+    console.log(`ENABLE_SPREADSHEET_LOGGING: ${CONFIG.ENABLE_SPREADSHEET_LOGGING}`);
+    console.log(`DROPBOX_SIGN_INTEGRATION.ENABLE: ${CONFIG.DROPBOX_SIGN_INTEGRATION?.ENABLE}`);
+    
+    // Step 2: Search for Dropbox Sign emails
+    console.log('\nStep 2: Searching for Dropbox Sign emails...');
+    const query = 'subject:"You\'ve been copied on" OR "via Dropbox Sign" OR "via HelloSign"';
+    const threads = GmailApp.search(query, 0, 5);
+    console.log(`Found ${threads.length} potential Dropbox Sign emails`);
+    
+    if (threads.length === 0) {
+      console.log('No Dropbox Sign emails found for testing');
+      return;
+    }
+    
+    // Step 3: Test processing workflow on first email
+    console.log('\nStep 3: Testing processing workflow...');
+    const thread = threads[0];
+    const messages = thread.getMessages();
+    
+    if (messages.length > 0) {
+      const message = messages[0];
+      const sender = message.getFrom();
+      const subject = message.getSubject();
+      const messageId = message.getId();
+      
+      console.log(`\nTesting message:`);
+      console.log(`From: ${sender}`);
+      console.log(`Subject: ${subject}`);
+      console.log(`Message ID: ${messageId}`);
+      
+      // Step 4: Test message source detection
+      console.log('\nStep 4: Testing message source detection...');
+      const messageSource = detectMessageSource(message);
+      console.log(`Message source: ${messageSource.type}`);
+      console.log(`Detection details: ${JSON.stringify(messageSource.details)}`);
+      
+      // Step 5: Test subject pattern matching
+      console.log('\nStep 5: Testing subject pattern matching...');
+      const patternResult = checkSubjectPattern(subject, messageSource.type);
+      console.log(`Pattern match: ${patternResult.isMatch ? '✅ MATCHES' : '❌ NO MATCH'}`);
+      
+      if (patternResult.isMatch) {
+        console.log(`Matched pattern: ${patternResult.matchedPattern}`);
+        
+        // Step 6: Check if already processed
+        console.log('\nStep 6: Checking if already processed...');
+        const alreadyProcessed = isMessageAlreadyProcessed(message);
+        console.log(`Already processed: ${alreadyProcessed ? 'YES' : 'NO'}`);
+        
+        if (!alreadyProcessed) {
+          console.log('\nStep 7: This message would be processed and logged to spreadsheet');
+          console.log('Run processEmails() to actually process this message');
+        } else {
+          console.log('\nStep 7: This message was already processed');
+          
+          // Check if it exists in spreadsheet
+          const recordInSpreadsheet = searchRecordByMessageId(messageId);
+          if (recordInSpreadsheet) {
+            console.log('✅ Record exists in spreadsheet');
+          } else {
+            console.log('⚠️ Record NOT found in spreadsheet (possible issue)');
+          }
+        }
+      }
+    }
+    
+    console.log('\n=== Dropbox Sign Workflow Debug Complete ===');
+    
+  } catch (error) {
+    console.error('Error debugging Dropbox Sign workflow:', error);
+    throw error;
+  }
+}
+
+/**
  * Clean up old processed messages (default: 7 days)
  * 古い処理済みメッセージをクリーンアップ（デフォルト: 7日）
  * 
@@ -1504,6 +2232,172 @@ function showSkippedEmailStats() {
   } catch (error) {
     console.error('Error getting skipped email statistics:', error);
   }
+}
+
+/**
+ * Verify specific message ID in both sheets and check for discrepancies
+ * 両方のシートで特定のメッセージIDを検証し、不一致をチェック
+ * 
+ * @param {string} messageId - The message ID to verify
+ */
+function verifyMessageIdConsistency(messageId) {
+  console.log(`=== VERIFYING MESSAGE ID CONSISTENCY: ${messageId} ===`);
+  
+  try {
+    const spreadsheetId = getProperty('SPREADSHEET_ID', false);
+    if (!spreadsheetId) {
+      console.log('❌ No spreadsheet ID configured');
+      return;
+    }
+    
+    const spreadsheet = SpreadsheetApp.openById(spreadsheetId);
+    console.log(`📊 Spreadsheet URL: ${spreadsheet.getUrl()}`);
+    
+    // Check 1: searchRecordByMessageId() function
+    console.log('\n🔍 Test 1: searchRecordByMessageId() function');
+    const searchResult = searchRecordByMessageId(messageId);
+    const foundInMainSheet = searchResult !== null;
+    console.log(`Result: ${foundInMainSheet ? '✅ FOUND' : '❌ NOT FOUND'}`);
+    
+    if (foundInMainSheet) {
+      console.log(`   Row: ${searchResult.row}`);
+      console.log(`   Subject: ${searchResult.subject}`);
+      console.log(`   Date: ${searchResult.date}`);
+      console.log(`   Status: ${searchResult.status}`);
+    }
+    
+    // Check 2: isMessageProcessedInSpreadsheet() function
+    console.log('\n🔍 Test 2: isMessageProcessedInSpreadsheet() function');
+    const isProcessed = isMessageProcessedInSpreadsheet(messageId);
+    console.log(`Result: ${isProcessed ? '✅ FOUND (processed)' : '❌ NOT FOUND (not processed)'}`);
+    
+    // Check 3: Manual search in main sheet
+    console.log('\n🔍 Test 3: Manual search in main contract sheet');
+    const mainSheet = spreadsheet.getSheetByName(SPREADSHEET_CONFIG.TAB_NAME);
+    let foundInManualMain = false;
+    
+    if (mainSheet && mainSheet.getLastRow() > 1) {
+      const dataRange = mainSheet.getRange(2, 1, mainSheet.getLastRow() - 1, mainSheet.getLastColumn());
+      const values = dataRange.getValues();
+      
+      for (let i = 0; i < values.length; i++) {
+        const row = values[i];
+        const rowMessageId = row[12]; // Column M (index 12) is Message ID
+        
+        if (rowMessageId === messageId) {
+          foundInManualMain = true;
+          console.log(`✅ FOUND in main sheet at row ${i + 2}`);
+          console.log(`   Message ID: "${rowMessageId}"`);
+          console.log(`   Subject: ${row[4]}`);
+          console.log(`   Date: ${row[0]}`);
+          console.log(`   Status: ${row[9]}`);
+          break;
+        }
+      }
+    }
+    
+    if (!foundInManualMain) {
+      console.log('❌ NOT FOUND in manual main sheet search');
+    }
+    
+    // Check 4: Manual search in processed sheet
+    console.log('\n🔍 Test 4: Manual search in processed messages sheet');
+    const processedSheet = spreadsheet.getSheetByName(SPREADSHEET_CONFIG.PROCESSED_TAB_NAME);
+    let foundInManualProcessed = false;
+    
+    if (processedSheet && processedSheet.getLastRow() > 1) {
+      const dataRange = processedSheet.getRange(2, 1, processedSheet.getLastRow() - 1, processedSheet.getLastColumn());
+      const values = dataRange.getValues();
+      
+      for (let i = 0; i < values.length; i++) {
+        const row = values[i];
+        const rowMessageId = row[1]; // Column B (index 1) is Message ID in processed sheet
+        
+        if (rowMessageId === messageId) {
+          foundInManualProcessed = true;
+          console.log(`✅ FOUND in processed sheet at row ${i + 2}`);
+          console.log(`   Message ID: "${rowMessageId}"`);
+          console.log(`   Subject: ${row[3]}`);
+          console.log(`   Processing Date: ${row[0]}`);
+          console.log(`   Status: ${row[5]}`);
+          break;
+        }
+      }
+    }
+    
+    if (!foundInManualProcessed) {
+      console.log('❌ NOT FOUND in manual processed sheet search');
+    }
+    
+    // Summary and analysis
+    console.log('\n📊 CONSISTENCY ANALYSIS:');
+    console.log(`searchRecordByMessageId(): ${foundInMainSheet ? 'FOUND' : 'NOT FOUND'}`);
+    console.log(`isMessageProcessedInSpreadsheet(): ${isProcessed ? 'FOUND' : 'NOT FOUND'}`);
+    console.log(`Manual main sheet search: ${foundInManualMain ? 'FOUND' : 'NOT FOUND'}`);
+    console.log(`Manual processed sheet search: ${foundInManualProcessed ? 'FOUND' : 'NOT FOUND'}`);
+    
+    // Check for inconsistencies
+    const hasInconsistency = (foundInMainSheet !== foundInManualMain) || 
+                            (isProcessed !== foundInManualProcessed);
+    
+    if (hasInconsistency) {
+      console.log('\n⚠️  INCONSISTENCY DETECTED!');
+      console.log('This suggests there may be a bug in one of the search functions.');
+      
+      if (foundInMainSheet !== foundInManualMain) {
+        console.log('- Discrepancy between searchRecordByMessageId() and manual main sheet search');
+      }
+      
+      if (isProcessed !== foundInManualProcessed) {
+        console.log('- Discrepancy between isMessageProcessedInSpreadsheet() and manual processed sheet search');
+      }
+    } else {
+      console.log('\n✅ NO INCONSISTENCIES DETECTED');
+      console.log('All search methods returned consistent results.');
+    }
+    
+    // User reported issue check
+    if (isProcessed && !foundInMainSheet && !foundInManualMain) {
+      console.log('\n🚨 USER REPORTED ISSUE CONFIRMED:');
+      console.log('Message shows as processed but cannot be found in main contract sheet');
+      console.log('This means the message is only in the processed messages tracking sheet');
+      console.log('but not in the main contract data sheet.');
+      
+      console.log('\nPOSSIBLE CAUSES:');
+      console.log('1. Message was marked as processed but failed to add to main sheet');
+      console.log('2. Message was deleted from main sheet but not from processed sheet');
+      console.log('3. There was an error during the addEmailRecord() process');
+      console.log('4. The message is in a different tab or sheet');
+    }
+    
+    return {
+      foundInMainSheet,
+      isProcessed,
+      foundInManualMain,
+      foundInManualProcessed,
+      hasInconsistency,
+      userIssueConfirmed: isProcessed && !foundInMainSheet && !foundInManualMain
+    };
+    
+  } catch (error) {
+    console.error('Error verifying message ID consistency:', error);
+    console.error('Error details:', error.stack);
+  }
+}
+
+/**
+ * Test the specific user-reported message ID issue
+ * ユーザー報告の特定メッセージID問題をテスト
+ */
+function testUserReportedMessageId() {
+  console.log('=== TESTING USER REPORTED MESSAGE ID ISSUE ===');
+  
+  const problematicMessageId = '197bf725ef40ab70';
+  
+  console.log(`Testing message ID: ${problematicMessageId}`);
+  console.log('User reports: "appears in logs as found but not visible in spreadsheet"');
+  
+  return verifyMessageIdConsistency(problematicMessageId);
 }
 
 /**

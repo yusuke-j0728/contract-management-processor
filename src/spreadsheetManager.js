@@ -777,20 +777,23 @@ function searchRecordByMessageId(messageId) {
     const values = dataRange.getValues();
     
     for (let i = 1; i < values.length; i++) {  // Skip header row
-      if (values[i][8] === messageId) {  // Column I is Message ID
+      if (values[i][12] === messageId) {  // Column M (index 12) is Message ID in new format
         return {
           row: i + 1,
-          date: values[i][0],
-          sender: values[i][1],
-          subject: values[i][2],
-          bodySummary: values[i][3],
-          attachmentCount: values[i][4],
-          pdfCount: values[i][5],
-          driveFolderUrl: values[i][6],
-          status: values[i][7],
-          messageId: values[i][8],
-          slackNotified: values[i][9] === 'Yes',
-          errorLog: values[i][10]
+          date: values[i][0],              // A: 受信日時
+          contractTool: values[i][1],      // B: 契約管理ツール
+          sender: values[i][2],            // C: 送信者メール
+          recipient: values[i][3],         // D: 受信メール
+          subject: values[i][4],           // E: 件名
+          contractType: values[i][5],      // F: 契約タイプ
+          contractParty: values[i][6],     // G: 契約相手
+          pdfFilename: values[i][7],       // H: PDFファイル名
+          pdfDirectLinks: values[i][8],    // I: PDF直接リンク
+          status: values[i][9],            // J: 処理状態
+          slackNotified: values[i][10] === 'Yes',  // K: Slack通知済み
+          bodySummary: values[i][11],      // L: 本文要約
+          messageId: values[i][12],        // M: メッセージID
+          errorLog: values[i][13]          // N: エラーログ
         };
       }
     }
@@ -1582,6 +1585,12 @@ function extractContractTool(senderEmail) {
     if (email.includes('contracttool8')) return 'Contract Tool 8';
     if (email.includes('contracttool9')) return 'Contract Tool 9';
     if (email.includes('contracttool10')) return 'Contract Tool 10';
+    
+    // Check for Dropbox Sign/HelloSign patterns in sender field
+    if (email.includes('via dropbox sign') || email.includes("'dropbox sign' via")) return 'Dropbox Sign';
+    if (email.includes('via hellosign') || email.includes("'hellosign' via")) return 'HelloSign';
+    if (email.includes('hellosign.com')) return 'HelloSign/Dropbox Sign';
+    if (email.includes('docusign')) return 'DocuSign';
     
     // Extract domain for unknown tools
     const domain = email.split('@')[1];

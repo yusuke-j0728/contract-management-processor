@@ -427,6 +427,11 @@ function checkSubjectPattern(subject, messageType = 'SENDER_BASED') {
       return checkDocusignPatterns(subject);
     }
     
+    // Handle Dropbox Sign-specific pattern matching
+    if (messageType === 'DROPBOX_SIGN' && CONFIG.DROPBOX_SIGN_INTEGRATION?.ENABLE) {
+      return checkDropboxSignPatterns(subject);
+    }
+    
     // Use advanced pattern matching if enabled for traditional contract tools
     if (CONFIG.SUBJECT_PATTERNS && CONFIG.SUBJECT_PATTERNS.ENABLE_MULTIPLE_PATTERNS) {
       return checkMultiplePatterns(subject);
@@ -600,6 +605,88 @@ function checkDocusignPatterns(subject) {
       error: error.message,
       checkedPatterns: [],
       messageType: 'DOCUSIGN'
+    };
+  }
+}
+
+/**
+ * Check subject against Dropbox Sign patterns
+ * Dropbox Sign パターンに対する件名チェック
+ * 
+ * @param {string} subject - Email subject
+ * @returns {Object} - Detailed match result for Dropbox Sign
+ */
+function checkDropboxSignPatterns(subject) {
+  try {
+    console.log('Checking Dropbox Sign-specific patterns...');
+    
+    const patterns = CONFIG.DROPBOX_SIGN_INTEGRATION.SUBJECT_PATTERNS || [];
+    const results = [];
+    const checkedPatterns = [];
+    
+    for (let i = 0; i < patterns.length; i++) {
+      const pattern = patterns[i];
+      const patternString = pattern.toString();
+      checkedPatterns.push(patternString);
+      
+      try {
+        const isMatch = pattern.test(subject);
+        
+        results.push({
+          pattern: patternString,
+          isMatch: isMatch,
+          matchDetails: isMatch ? subject.match(pattern) : null
+        });
+        
+        console.log(`Dropbox Sign Pattern ${i + 1}: ${patternString} -> ${isMatch ? 'MATCH' : 'NO MATCH'}`);
+        
+        // Return immediately on first match
+        if (isMatch) {
+          return {
+            isMatch: true,
+            matchedPattern: patternString,
+            checkedPatterns: checkedPatterns,
+            allResults: results,
+            messageType: 'DROPBOX_SIGN',
+            summary: {
+              totalPatterns: patterns.length,
+              matchedCount: 1,
+              finalResult: true
+            }
+          };
+        }
+        
+      } catch (error) {
+        console.error(`Error testing Dropbox Sign pattern ${i + 1}:`, error);
+        results.push({
+          pattern: patternString,
+          isMatch: false,
+          error: error.message
+        });
+      }
+    }
+    
+    // No matches found
+    return {
+      isMatch: false,
+      matchedPattern: null,
+      checkedPatterns: checkedPatterns,
+      allResults: results,
+      messageType: 'DROPBOX_SIGN',
+      summary: {
+        totalPatterns: patterns.length,
+        matchedCount: 0,
+        finalResult: false
+      }
+    };
+    
+  } catch (error) {
+    console.error('Error checking Dropbox Sign patterns:', error);
+    return {
+      isMatch: false,
+      error: error.message,
+      checkedPatterns: [],
+      messageType: 'DROPBOX_SIGN'
     };
   }
 }
